@@ -1,0 +1,58 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    font-family: 'JetBrains Mono', monospace;
+  }
+  
+  body {
+    @apply bg-dark-300 text-gray-100 scrollbar-thin scrollbar-thumb-primary-600 scrollbar-track-dark-200 font-mono;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply px-4 py-2 rounded-md font-medium transition-all duration-200;
+  }
+  
+  .btn-primary {
+    @apply bg-primary-600 text-white hover:bg-primary-700 focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 focus:ring-offset-dark-300;
+  }
+  
+  .btn-secondary {
+    @apply bg-gray-800 text-white hover:bg-gray-700 focus:ring-2 focus:ring-gray-700 focus:ring-offset-2 focus:ring-offset-dark-300;
+  }
+  
+  .input {
+    @apply w-full bg-dark-100 border border-gray-700 rounded-md px-4 py-2 text-gray-100 focus:ring-2 focus:ring-primary-600 focus:border-transparent outline-none transition-all duration-200;
+  }
+  
+  .card {
+    @apply bg-dark-100 rounded-lg border border-gray-800 overflow-hidden shadow-lg;
+  }
+  
+  .glow {
+    @apply shadow-glow;
+  }
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.5s ease-in-out;
+}
+
+.animate-slide-up {
+  animation: slideUp 0.5s ease-in-out;
+} 

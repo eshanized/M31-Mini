@@ -1,0 +1,215 @@
+'use client';
+
+import React, { useEffect, useState, useCallback } from 'react';
+import Layout from '../../components/Layout';
+import CodeEditor from '../../components/CodeEditor';
+import PromptInput from '../../components/PromptInput';
+import ChatHistory from '../../components/ChatHistory';
+import { useAppStore } from '../../lib/store';
+import { motion } from 'framer-motion';
+import { FiCode, FiCpu, FiGitBranch, FiSettings, FiArrowRight } from 'react-icons/fi';
+import ModelSelector from '@/components/ModelSelector';
+import Link from 'next/link';
+
+export default function GeneratePage() {
+  const { 
+    apiKey, 
+    setApiKey,
+    generatedCode, 
+    initializeAIService,
+    fetchAvailableModels,
+    isGenerating,
+    githubRepo
+  } = useAppStore();
+  
+  const [hasHydrated, setHasHydrated] = useState(false);
+  const [activeTab, setActiveTab] = useState('settings');
+  
+  // Initialize the service and load API key
+  useEffect(() => {
+    const savedApiKey = localStorage.getItem('openrouter_api_key');
+    if (savedApiKey) {
+      setApiKey(savedApiKey);
+    }
+    setHasHydrated(true);
+  }, [setApiKey]);
+  
+  useEffect(() => {
+    if (apiKey && hasHydrated) {
+      initializeAIService();
+      fetchAvailableModels();
+    }
+  }, [apiKey, hasHydrated, initializeAIService, fetchAvailableModels]);
+
+  // Memoized tab content to avoid unnecessary re-renders
+  const renderTabContent = useCallback(() => {
+    switch (activeTab) {
+      case 'settings':
+        return (
+          <div className="space-y-6">
+            <div className="card p-4">
+              <h3 className="text-lg font-medium text-white mb-3 flex items-center">
+                <FiSettings className="mr-2 text-primary-400" /> Generation Settings
+              </h3>
+              <ModelSelector />
+              
+              <div className="mt-4">
+                <label className="block text-sm font-medium text-gray-300 mb-1">API Key</label>
+                <input 
+                  type="password"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder="Enter your OpenRouter API key"
+                  className="input"
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  Need an API key? <a href="https://openrouter.ai" target="_blank" rel="noopener noreferrer" className="text-primary-400 hover:text-primary-300">Get one from OpenRouter</a>
+                </p>
+              </div>
+            </div>
+            
+            <div className="card p-4">
+              <h3 className="text-lg font-medium text-white mb-3 flex items-center">
+                <FiGitBranch className="mr-2 text-primary-400" /> GitHub Repository
+              </h3>
+              {githubRepo ? (
+                <div>
+                  <div className="bg-primary-900/20 p-3 rounded-md border border-primary-800 mb-3">
+                    <div className="flex items-center text-primary-300 font-medium mb-1">
+                      <FiGitBranch className="mr-2" /> Repository Connected
+                    </div>
+                    <p className="text-gray-300 text-sm">
+                      {githubRepo.owner}/{githubRepo.name}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {githubRepo.fileCount} files • {githubRepo.description || 'No description'}
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Link 
+                      href="/repository" 
+                      className="btn btn-secondary text-sm flex items-center justify-center"
+                    >
+                      View Files
+                    </Link>
+                    <button 
+                      onClick={() => window.open(githubRepo.url, '_blank')}
+                      className="btn btn-secondary text-sm flex items-center justify-center"
+                    >
+                      View on GitHub
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <p className="text-gray-400 text-sm mb-3">
+                    No repository connected. Connect a GitHub repository to generate code with context-awareness.
+                  </p>
+                  <Link 
+                    href="/repository" 
+                    className="btn btn-primary w-full flex items-center justify-center text-sm"
+                  >
+                    <FiGitBranch className="mr-2" /> Connect Repository
+                    <FiArrowRight className="ml-2" />
+                  </Link>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      case 'history':
+        return (
+          <div className="card p-4 max-h-[500px] overflow-auto scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-dark-300">
+            <h3 className="text-lg font-medium text-white mb-3">Conversation History</h3>
+            <ChatHistory />
+          </div>
+        );
+      default:
+        return null;
+    }
+  }, [activeTab, apiKey, setApiKey, githubRepo]);
+
+  return (
+    <Layout>
+      <div className="container mx-auto px-4 py-8 max-w-7xl">
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3 }}
+          className="mb-6"
+        >
+          <h1 className="text-3xl font-bold text-white flex items-center">
+            <FiCode className="mr-3 text-primary-500" /> Python Code Generator
+          </h1>
+          <p className="text-gray-400 mt-2">
+            Create optimized, production-ready Python code without comments or explanations
+          </p>
+        </motion.div>
+
+        {/* Main content */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* Left Panel */}
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.3, delay: 0.1 }}
+            className="lg:col-span-8 space-y-6"
+          >
+            {/* Code Editor Section */}
+            <div className="relative">
+              {isGenerating && (
+                <div className="absolute inset-0 bg-dark-100/80 flex items-center justify-center z-10 rounded-xl backdrop-blur-sm">
+                  <div className="text-center">
+                    <FiCpu className="animate-spin h-8 w-8 mx-auto text-primary-500 mb-3" />
+                    <p className="text-white font-medium">Generating code...</p>
+                  </div>
+                </div>
+              )}
+              <CodeEditor code={generatedCode} />
+            </div>
+            
+            {/* Prompt Input */}
+            <div className="card p-4">
+              <PromptInput />
+            </div>
+          </motion.div>
+          
+          {/* Right Panel */}
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.3, delay: 0.2 }}
+            className="lg:col-span-4"
+          >
+            {/* Tabs */}
+            <div className="flex mb-4 border-b border-gray-800">
+              <button
+                onClick={() => setActiveTab('settings')}
+                className={`px-4 py-2 text-sm font-medium ${
+                  activeTab === 'settings' 
+                    ? 'text-primary-400 border-b-2 border-primary-400' 
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                Settings
+              </button>
+              <button
+                onClick={() => setActiveTab('history')}
+                className={`px-4 py-2 text-sm font-medium ${
+                  activeTab === 'history' 
+                    ? 'text-primary-400 border-b-2 border-primary-400' 
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                History
+              </button>
+            </div>
+            
+            {/* Tab Content */}
+            {renderTabContent()}
+          </motion.div>
+        </div>
+      </div>
+    </Layout>
+  );
+}
