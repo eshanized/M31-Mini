@@ -2,12 +2,13 @@ import axios from 'axios';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 import { GitHubService, GitHubRepo, FileTree } from './github-service';
 
-export type OpenRouterModels = 'anthropic/claude-3-opus-20240229' | 
-  'anthropic/claude-3-sonnet-20240229' | 
-  'meta-llama/llama-3-70b-instruct' | 
-  'meta-llama/llama-3-8b-instruct' | 
+export type OpenRouterModels = 
+  'anthropic/claude-instant-1' | 
+  'meta-llama/llama-2-13b-chat' | 
+  'google/palm-2-chat-bison' | 
   'google/gemini-pro' | 
-  'openai/gpt-4o';
+  'mistralai/mistral-7b-instruct' | 
+  'mistralai/mixtral-8x7b-instruct';
 
 export type Message = {
   role: 'user' | 'assistant' | 'system';
@@ -52,12 +53,12 @@ export class AIService {
   private baseUrl: string = 'https://openrouter.ai/api/v1';
   private githubService: GitHubService | null = null;
   private models: OpenRouterModels[] = [
-    'anthropic/claude-3-opus-20240229',
-    'anthropic/claude-3-sonnet-20240229',
-    'meta-llama/llama-3-70b-instruct',
-    'meta-llama/llama-3-8b-instruct',
+    'anthropic/claude-instant-1',
+    'meta-llama/llama-2-13b-chat',
+    'google/palm-2-chat-bison',
     'google/gemini-pro',
-    'openai/gpt-4o'
+    'mistralai/mistral-7b-instruct',
+    'mistralai/mixtral-8x7b-instruct'
   ];
   private repoData: GitHubRepo | null = null;
   private fileTree: FileTree | null = null;
@@ -79,35 +80,35 @@ export class AIService {
     // Model recommendations based on task category
     switch (category) {
       case 'data_analysis':
-        return 'anthropic/claude-3-opus-20240229'; // Best for complex data analysis tasks
+        return 'mistralai/mixtral-8x7b-instruct'; // Best for complex data analysis tasks
       case 'machine_learning':
-        return 'anthropic/claude-3-opus-20240229'; // Best for ML code
+        return 'mistralai/mixtral-8x7b-instruct'; // Best for ML code
       case 'web_development':
-        return 'meta-llama/llama-3-70b-instruct'; // Good for web and API development
+        return 'google/gemini-pro'; // Good for web and API development
       case 'automation':
-        return 'anthropic/claude-3-sonnet-20240229'; // Good balance for automation scripts
+        return 'anthropic/claude-instant-1'; // Good balance for automation scripts
       case 'algorithms':
-        return 'meta-llama/llama-3-70b-instruct'; // Good for algorithmic problems
+        return 'meta-llama/llama-2-13b-chat'; // Good for algorithmic problems
       case 'simple_scripts':
-        return 'meta-llama/llama-3-8b-instruct'; // Fast and efficient for simple tasks
+        return 'mistralai/mistral-7b-instruct'; // Fast and efficient for simple tasks
       default:
-        return 'anthropic/claude-3-sonnet-20240229'; // Good default option
+        return 'google/gemini-pro'; // Good default option
     }
   }
 
   public getSystemPrompt(includeRepoContext: boolean = false): string {
-    let prompt = `You are a world-class Python developer with expertise in data science, machine learning, web development, and automation.
+    let prompt = `You are a world-class developer with expertise in data science, machine learning, web development, and automation.
+You act as an agentic AI assistant capable of analyzing codebases, understanding repository structures, and generating high-quality code.
+Provide detailed, thoughtful responses about the codebase and suggest actionable improvements.
 
 CUSTOM RULES FOR CODE GENERATION:
-1. Generate ONLY Python code. Do not include any explanations, comments, or documentation.
-2. Follow PEP 8 style guidelines strictly.
-3. Always use proper type hints in function signatures.
+1. Generate code in the requested language or match the repository's primary language.
+2. Follow style guidelines appropriate to the language.
+3. Always use proper type hints and documentation where appropriate.
 4. Optimize for readability and performance.
 5. Write code that's production-ready and robust to edge cases.
 6. Use appropriate error handling.
-7. Use the latest Python best practices.
-8. Do not include installation instructions or how to run the code.
-9. Include only the implementation, no docstrings, comments, or explanations.`;
+7. Use the latest best practices for the language.`;
 
     if (includeRepoContext && this.repoData) {
       prompt += `\n\nREPOSITORY CONTEXT:
@@ -123,32 +124,14 @@ Main File Types: ${Object.entries(this.repoData.fileTypes)
 When providing solutions, ensure they align with the repository's structure and purpose.`;
     }
 
-    prompt += `\n\nRESPONSE FORMAT:
-In response to user's request, provide ONLY the Python code implementation, with no explanation.
-
-EXAMPLE USER PROMPT:
-Write a function to find the most frequent element in a list.
-
-EXAMPLE RESPONSE:
-from typing import TypeVar, List, Dict, Any
-from collections import Counter
-
-T = TypeVar('T')
-
-def find_most_frequent(items: List[T]) -> T:
-    if not items:
-        raise ValueError("Input list cannot be empty")
-    counter = Counter(items)
-    return counter.most_common(1)[0][0]`;
-
     return prompt;
   }
 
   public getUserPrompt(prompt: string): string {
-    return `Generate professional Python code for the following request: ${prompt}`;
+    return prompt;
   }
 
-  public async generatePythonCode(prompt: string, model: OpenRouterModels = 'anthropic/claude-3-sonnet-20240229'): Promise<string> {
+  public async generatePythonCode(prompt: string, model: OpenRouterModels = 'google/gemini-pro'): Promise<string> {
     const systemPrompt = this.getSystemPrompt();
     const userPrompt = this.getUserPrompt(prompt);
     
@@ -184,7 +167,7 @@ def find_most_frequent(items: List[T]) -> T:
 
   public async streamPythonCode(
     prompt: string, 
-    model: OpenRouterModels = 'anthropic/claude-3-sonnet-20240229', 
+    model: OpenRouterModels = 'google/gemini-pro', 
     onChunk: (chunk: string) => void,
     onComplete: (fullResponse: string) => void
   ): Promise<void> {
@@ -249,17 +232,18 @@ def find_most_frequent(items: List[T]) -> T:
         }
       });
       
-      return response.data.data
-        .filter((model: any) => model.id.includes('anthropic') || model.id.includes('openai'))
+      // Filter to only include free models
+      const freeModels = this.models;
+      const availableModels = response.data.data
+        .filter((model: any) => freeModels.includes(model.id))
         .map((model: any) => model.id);
+      
+      // Return the filtered list if it has items, otherwise return our predefined list
+      return availableModels.length > 0 ? availableModels : freeModels;
     } catch (error) {
       console.error('Error fetching models:', error);
-      return [
-        'anthropic/claude-3-opus',
-        'anthropic/claude-3-sonnet',
-        'anthropic/claude-3-haiku',
-        'openai/gpt-4o'
-      ];
+      // Return our predefined list of free models as fallback
+      return this.models;
     }
   }
 
@@ -268,21 +252,31 @@ def find_most_frequent(items: List[T]) -> T:
     progressCallback?: (progress: any) => void
   ): Promise<GitHubRepo> {
     if (!this.githubService) {
-      throw new Error('GitHub service is only available in browser environments');
+      throw new Error('GitHub service not initialized');
     }
     
     try {
-      this.repoData = await this.githubService.cloneRepository(repoUrl, progressCallback);
+      // Clone the repository
+      const repo = await this.githubService.cloneRepository(repoUrl, progressCallback);
+      this.repoData = repo;
       
-      // Extract owner and repo name from the clone result
-      const { owner, name } = this.repoData;
+      // Get file tree
+      this.fileTree = await this.getFileTree();
       
-      // Get the file tree
-      this.fileTree = await this.githubService.getFileTree(owner, name);
+      if (progressCallback) {
+        progressCallback({ loaded: 95, total: 100 });
+      }
       
-      return this.repoData;
+      // Complete the analysis with additional data
+      const importantFiles = this.identifyImportantFiles(this.fileTree!);
+      
+      if (progressCallback) {
+        progressCallback({ loaded: 100, total: 100 });
+      }
+      
+      return repo;
     } catch (error) {
-      console.error('Error cloning repository:', error);
+      console.error('Error analyzing repository:', error);
       throw error;
     }
   }
@@ -334,7 +328,7 @@ def find_most_frequent(items: List[T]) -> T:
 
   public async analyzeRepositoryCode(
     prompt: string,
-    model: OpenRouterModels = 'anthropic/claude-3-opus-20240229'
+    model: OpenRouterModels = 'mistralai/mixtral-8x7b-instruct'
   ): Promise<string> {
     if (!this.githubService) {
       throw new Error('GitHub service is not initialized. This feature is only available in browser environments.');
@@ -626,5 +620,28 @@ Please provide a Python solution that integrates well with this repository.`;
     }
     
     return result;
+  }
+
+  private async buildFullRepoContext(maxTokens: number = 15000): Promise<string> {
+    if (!this.repoData || !this.fileTree) {
+      throw new Error('Repository data or file tree not available');
+    }
+    
+    try {
+      // Extract owner and repo name from the clone result
+      const { owner, name } = this.repoData;
+      
+      // Get the most important files
+      const importantFiles = this.identifyImportantFiles(this.fileTree);
+      
+      // Get the content of important files
+      const fileContents = await this.getSampleFiles(owner, name, 10);
+      
+      // Build the context
+      return this.buildRepositoryContext(this.repoData, this.fileTree, fileContents);
+    } catch (error) {
+      console.error('Error building repository context:', error);
+      throw error;
+    }
   }
 } 

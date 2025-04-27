@@ -52,7 +52,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   apiKey: '',
   aiService: null,
   isStreaming: false,
-  selectedModel: 'anthropic/claude-3-opus',
+  selectedModel: 'google/gemini-pro',
   availableModels: [],
   messages: [],
   currentPrompt: '',
@@ -91,6 +91,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (apiKey) {
       const service = new AIService(apiKey);
       set({ aiService: service });
+      
+      // Initialize with available models
+      if (typeof window !== 'undefined') {
+        get().fetchAvailableModels();
+        
+        // Load API key from localStorage if available
+        const savedKey = localStorage.getItem('openrouter_api_key');
+        if (savedKey && !get().apiKey) {
+          set({ apiKey: savedKey });
+        }
+      }
     }
   },
   
@@ -206,33 +217,47 @@ export const useAppStore = create<AppState>((set, get) => ({
   
   analyzeCodeWithAgent: async (prompt, filePath, fileContent) => {
     const { aiService, selectedModel } = get();
-    if (!aiService) return '';
+    if (!aiService) return 'Error: AI service not initialized. Please set an API key first.';
     
     if (typeof window === 'undefined') {
       console.warn('GitHub repository features are only available in browser environments');
-      return '';
+      return 'Error: This feature is only available in browser environments.';
     }
     
     set({ isGenerating: true });
     
     try {
-      let fullPrompt = prompt;
-      
-      // Add file context if provided
-      if (filePath && fileContent) {
-        fullPrompt = `File: ${filePath}\n\n${fileContent}\n\n${prompt}`;
-      }
+      // Check if the model exists in available models, fall back to default if not
+      const model = get().availableModels.includes(selectedModel)
+        ? selectedModel
+        : 'google/gemini-pro';
+        
+      // Add system instructions to make it act like an agent
+      const agentPrompt = `
+You are an agentic coding assistant. Analyze the codebase and respond with a detailed plan and implementation.
+When analyzing code, follow this structured approach:
+1. First, understand the overall purpose of the code
+2. Identify patterns, architecture, and key components
+3. Pinpoint areas of improvement or potential issues
+4. Provide specific, actionable recommendations
+5. If asked to implement a feature, provide complete code that integrates well with existing structures
+
+For the current request:
+${prompt}
+
+${filePath ? `Current file: ${filePath}\n\n${fileContent || 'File content not available'}\n\n` : ''}
+`;
       
       // Call the AI service to analyze the code
       const response = await aiService.analyzeRepositoryCode(
-        `Act as an agentic AI assistant for code exploration and generation. ${fullPrompt}`, 
-        selectedModel as any
+        agentPrompt,
+        model as any
       );
       
-      return response;
+      return response || 'The AI model did not return a response. Please try again.';
     } catch (error) {
       console.error('Error analyzing code with agent:', error);
-      return `Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
+      return `Error: ${error instanceof Error ? error.message : 'Unknown error occurred during analysis'}`;
     } finally {
       set({ isGenerating: false });
     }

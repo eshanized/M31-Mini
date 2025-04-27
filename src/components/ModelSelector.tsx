@@ -1,119 +1,89 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { FiChevronDown, FiChevronUp, FiCpu } from 'react-icons/fi';
-import { useAppStore } from '../lib/store';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useState, useEffect } from 'react';
+import { useAppStore } from '@/lib/store';
+import { FiChevronDown, FiInfo } from 'react-icons/fi';
 
 export default function ModelSelector() {
-  const { selectedModel, setSelectedModel, availableModels } = useAppStore();
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const { selectedModel, setSelectedModel, availableModels, fetchAvailableModels } = useAppStore();
+  const [isOpen, setIsOpen] = useState(false);
+  const [showTooltip, setShowTooltip] = useState(false);
   
-  // Format model name for display
-  const formatModelName = (model: string): string => {
-    // Remove provider prefix
-    const parts = model.split('/');
-    let name = parts.length > 1 ? parts[1] : model;
-    
-    // Clean up version numbers
-    name = name.replace(/-\d{8}$/, '');
-    
-    // Capitalize and add spaces
-    return name
-      .replace(/-/g, ' ')
-      .replace(/([a-z])([A-Z])/g, '$1 $2')
-      .split(' ')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ');
+  // Model display names for better UX
+  const modelDisplayNames: Record<string, string> = {
+    'anthropic/claude-instant-1': 'Claude Instant',
+    'meta-llama/llama-2-13b-chat': 'Llama 2 (13B)',
+    'google/palm-2-chat-bison': 'PaLM 2',
+    'google/gemini-pro': 'Gemini Pro',
+    'mistralai/mistral-7b-instruct': 'Mistral (7B)',
+    'mistralai/mixtral-8x7b-instruct': 'Mixtral 8x7B'
   };
   
-  // Get model provider name
-  const getModelProvider = (model: string): string => {
-    const provider = model.split('/')[0];
-    return provider.charAt(0).toUpperCase() + provider.slice(1);
-  };
-  
-  // Check if model is free
-  const isModelFree = (model: string): boolean => {
-    return model.includes(':free') || model.includes('llama-3-8b-instruct');
-  };
-  
-  // Close menu when clicking outside
+  // Get models from store on component mount
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setIsMenuOpen(false);
-      }
-    };
-    
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, []);
+    fetchAvailableModels();
+  }, [fetchAvailableModels]);
   
+  const getModelName = (model: string) => {
+    return modelDisplayNames[model] || model.split('/').pop() || model;
+  };
+  
+  const toggleDropdown = () => {
+    setIsOpen(!isOpen);
+  };
+  
+  const selectModel = (model: string) => {
+    setSelectedModel(model);
+    setIsOpen(false);
+  };
+
   return (
-    <div className="relative" ref={menuRef}>
-      <label className="block text-sm font-medium text-gray-300 mb-1">
-        AI Model
-      </label>
-      
-      <button
-        onClick={() => setIsMenuOpen(!isMenuOpen)}
-        className="w-full flex items-center justify-between bg-dark-100 border border-gray-700 rounded-md px-4 py-2 text-gray-100 hover:border-primary-500 transition-colors"
-      >
-        <div className="flex items-center">
-          <FiCpu className="h-4 w-4 mr-2 text-primary-400" />
-          <span>{formatModelName(selectedModel)}</span>
-          <span className="ml-2 text-xs opacity-60">({getModelProvider(selectedModel)})</span>
-          {isModelFree(selectedModel) && (
-            <span className="ml-2 text-xs bg-green-900/50 text-green-300 px-1.5 py-0.5 rounded-full">Free</span>
-          )}
+    <div className="relative">
+      <div className="flex items-center">
+        <button
+          onClick={toggleDropdown}
+          className="flex items-center space-x-2 px-3 py-1 bg-dark-100 border border-gray-800 rounded-md hover:bg-dark-200 transition-colors"
+        >
+          <span className="text-sm text-gray-300">{getModelName(selectedModel)}</span>
+          <FiChevronDown className="h-4 w-4 text-gray-400" />
+        </button>
+        
+        <div 
+          className="ml-2 text-gray-400 cursor-pointer"
+          onMouseEnter={() => setShowTooltip(true)}
+          onMouseLeave={() => setShowTooltip(false)}
+        >
+          <FiInfo className="h-4 w-4" />
         </div>
-        {isMenuOpen ? <FiChevronUp className="h-4 w-4 ml-2" /> : <FiChevronDown className="h-4 w-4 ml-2" />}
-      </button>
+      </div>
       
-      <AnimatePresence>
-        {isMenuOpen && (
-          <motion.div
-            initial={{ opacity: 0, y: -5 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -5 }}
-            transition={{ duration: 0.15 }}
-            className="absolute z-10 mt-1 w-full bg-dark-100 border border-gray-800 rounded-md shadow-lg max-h-60 overflow-auto scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-dark-300"
-          >
-            <div className="p-1">
-              {availableModels.length > 0 ? (
-                availableModels.map((model) => (
-                  <button
-                    key={model}
-                    onClick={() => {
-                      setSelectedModel(model);
-                      setIsMenuOpen(false);
-                    }}
-                    className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors flex items-center justify-between ${
-                      model === selectedModel
-                        ? 'bg-primary-900/30 text-primary-300'
-                        : 'text-gray-300 hover:bg-dark-200'
-                    }`}
-                  >
-                    <div className="flex items-center">
-                      <span>{formatModelName(model)}</span>
-                      {isModelFree(model) ? (
-                        <span className="ml-2 text-xs bg-green-900/50 text-green-300 px-1.5 py-0.5 rounded-full">Free</span>
-                      ) : (
-                        <span className="ml-2 text-xs bg-yellow-900/30 text-yellow-300 px-1.5 py-0.5 rounded-full">Paid</span>
-                      )}
-                    </div>
-                    <span className="text-xs opacity-60">{getModelProvider(model)}</span>
-                  </button>
-                ))
-              ) : (
-                <div className="px-3 py-2 text-sm text-gray-500">Loading models...</div>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {showTooltip && (
+        <div className="absolute top-8 right-0 w-64 p-3 bg-dark-200 border border-gray-700 rounded-md shadow-lg z-50 text-xs text-gray-300">
+          These are free models available through OpenRouter. Model quality and response time may vary.
+        </div>
+      )}
+      
+      {isOpen && (
+        <div className="absolute top-8 right-0 w-48 mt-1 bg-dark-200 border border-gray-700 rounded-md shadow-lg z-50">
+          <ul className="py-1">
+            {availableModels.length > 0 ? (
+              availableModels.map((model) => (
+                <li 
+                  key={model} 
+                  className={`px-3 py-2 text-sm cursor-pointer hover:bg-dark-100 ${
+                    selectedModel === model ? 'bg-primary-900/30 text-primary-300' : 'text-gray-300'
+                  }`}
+                  onClick={() => selectModel(model)}
+                >
+                  {getModelName(model)}
+                </li>
+              ))
+            ) : (
+              <li className="px-3 py-2 text-sm text-gray-400">
+                Loading models...
+              </li>
+            )}
+          </ul>
+        </div>
+      )}
     </div>
   );
 } 

@@ -260,36 +260,44 @@ export default function RepositoryPage() {
     if (!filename) return 'text';
     
     const extension = filename.split('.').pop()?.toLowerCase() || '';
+    
     const extensionMap: Record<string, string> = {
       'js': 'javascript',
       'jsx': 'jsx',
       'ts': 'typescript',
-      'tsx': 'tsx',
+      'tsx': 'typescript',
       'py': 'python',
-      'html': 'html',
-      'css': 'css',
-      'scss': 'scss',
-      'json': 'json',
-      'md': 'markdown',
-      'yml': 'yaml',
-      'yaml': 'yaml',
-      'sh': 'bash',
-      'bash': 'bash',
+      'rb': 'ruby',
       'java': 'java',
       'c': 'c',
       'cpp': 'cpp',
       'cs': 'csharp',
       'go': 'go',
       'rs': 'rust',
-      'rb': 'ruby',
       'php': 'php',
-      'swift': 'swift',
-      'kt': 'kotlin',
-      'vue': 'markup',
+      'html': 'html',
+      'css': 'css',
+      'scss': 'scss',
+      'md': 'markdown',
+      'json': 'json',
+      'yml': 'yaml',
+      'yaml': 'yaml',
+      'sh': 'bash',
+      'bash': 'bash',
       'sql': 'sql',
-      'graphql': 'graphql',
+      'toml': 'toml',
       'xml': 'xml',
+      'dockerfile': 'dockerfile',
+      'gitignore': 'text',
+      'env': 'text',
+      'txt': 'text'
     };
+    
+    // Check for specific filenames
+    const lowercaseFilename = filename.toLowerCase();
+    if (lowercaseFilename === 'dockerfile') return 'dockerfile';
+    if (lowercaseFilename === '.gitignore') return 'text';
+    if (lowercaseFilename === '.env') return 'text';
     
     return extensionMap[extension] || 'text';
   };
@@ -335,36 +343,42 @@ export default function RepositoryPage() {
 
   // Process agent query
   const handleAgentSubmit = async () => {
-    if (!agentPrompt.trim() || !aiService || !githubRepo || isAgentProcessing) return;
+    if (!aiService || !githubRepo || !agentPrompt.trim() || isAgentProcessing) return;
     
     setIsAgentProcessing(true);
     setAgentResponse(null);
     
     try {
-      let contextFiles = '';
+      console.log("Starting repository analysis with agent...");
       
-      // Add current file to context if one is selected
-      if (selectedFile) {
-        const relativePath = selectedFile.replace(`/${githubRepo.owner}/${githubRepo.name}/`, '');
-        contextFiles = `Current open file: ${relativePath}\n\n${fileContent}\n\n`;
+      // Create a more detailed prompt that asks for indexing and analysis
+      const indexingPrompt = `
+I need you to analyze the entire repository '${githubRepo.owner}/${githubRepo.name}' and perform the following tasks:
+
+1. Index all files in the repository. Create a comprehensive map of file types, purposes, and their relationships.
+2. Analyze the codebase architecture, identifying key components, patterns, and dependencies.
+3. Based on this analysis, respond to my request:
+
+${agentPrompt}
+
+Please provide a detailed response that shows your understanding of the repository structure and properly addresses my request.
+`;
+      
+      // Call AI service to analyze code with agent capabilities
+      let response;
+      try {
+        response = await useAppStore.getState().analyzeCodeWithAgent(indexingPrompt);
+      } catch (error) {
+        console.error('Error with agent analysis:', error);
+        // Fallback to direct repository analysis if agent method fails
+        response = await aiService.analyzeRepositoryCode(indexingPrompt);
       }
       
-      // Add existing edits to context
-      if (fileEdits.length > 0) {
-        contextFiles += 'Edited files:\n';
-        for (const edit of fileEdits) {
-          const relativePath = edit.path.replace(`/${githubRepo.owner}/${githubRepo.name}/`, '');
-          contextFiles += `- ${relativePath}\n`;
-        }
-        contextFiles += '\n';
+      if (response) {
+        setAgentResponse(response);
+      } else {
+        throw new Error('Analysis produced no results');
       }
-      
-      // Build prompt with repository context
-      const fullPrompt = `Act as an agentic AI assistant for code exploration and generation. I'm exploring this repository and need help with the following:\n${agentPrompt}\n\n${contextFiles}`;
-      
-      // Call AI service to analyze code
-      const response = await aiService.analyzeRepositoryCode(fullPrompt);
-      setAgentResponse(response);
     } catch (error) {
       console.error('Error processing agent request:', error);
       setAgentResponse(`Error: ${error instanceof Error ? error.message : 'Something went wrong'}`);

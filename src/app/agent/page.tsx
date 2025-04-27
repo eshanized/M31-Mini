@@ -223,39 +223,54 @@ export default function AgentPage() {
 
   // Process agent query
   const handleAgentSubmit = async () => {
-    if (!agentPrompt.trim() || !aiService || !githubRepo || isAgentProcessing) return;
+    if (!aiService || !agentPrompt.trim()) {
+      setAgentResponse("Error: Please enter a prompt and ensure API key is set");
+      return;
+    }
     
     setIsAgentProcessing(true);
     setAgentResponse(null);
     
     try {
-      let contextFiles = '';
+      // Track if we're analyzing a specific file or the whole repository
+      const isFileAnalysis = selectedFile !== null;
       
-      // Add current file to context if one is selected
-      if (selectedFile) {
-        const relativePath = selectedFile.replace(`/${githubRepo.owner}/${githubRepo.name}/`, '');
-        contextFiles = `Current open file: ${relativePath}\n\n${fileContent}\n\n`;
-      }
+      const analysisPrompt = `
+Analyze the following ${isFileAnalysis ? 'file' : 'repository'} and respond to this request:
+
+${agentPrompt}
+
+${isFileAnalysis ? 'Focus on the specific file provided.' : 'Consider the entire repository structure and patterns.'}
+`;
       
-      // Add existing edits to context
-      if (fileEdits.length > 0) {
-        contextFiles += 'Edited files:\n';
-        for (const edit of fileEdits) {
-          const relativePath = edit.path.replace(`/${githubRepo.owner}/${githubRepo.name}/`, '');
-          contextFiles += `- ${relativePath}\n`;
+      let response;
+      try {
+        if (isFileAnalysis && selectedFile) {
+          // For file-specific analysis
+          response = await useAppStore.getState().analyzeCodeWithAgent(
+            analysisPrompt,
+            selectedFile,
+            fileContent
+          );
+        } else if (githubRepo) {
+          // For whole repository analysis
+          response = await aiService.analyzeRepositoryCode(analysisPrompt);
+        } else {
+          throw new Error("No repository loaded. Please load a repository first.");
         }
-        contextFiles += '\n';
+      } catch (e) {
+        console.error("Error during analysis:", e);
+        throw new Error(`Analysis failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
       }
       
-      // Build prompt with repository context
-      const fullPrompt = `Act as an agentic AI assistant for code exploration and generation. I'm exploring this repository and need help with the following:\n${agentPrompt}\n\n${contextFiles}`;
+      if (!response) {
+        throw new Error("No response received from the model");
+      }
       
-      // Call AI service to analyze code
-      const response = await aiService.analyzeRepositoryCode(fullPrompt);
       setAgentResponse(response);
     } catch (error) {
-      console.error('Error processing agent request:', error);
-      setAgentResponse(`Error: ${error instanceof Error ? error.message : 'Something went wrong'}`);
+      console.error('Error in agent processing:', error);
+      setAgentResponse(`Error: ${error instanceof Error ? error.message : 'An unknown error occurred'}`);
     } finally {
       setIsAgentProcessing(false);
     }

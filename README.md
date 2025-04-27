@@ -1,85 +1,60 @@
-# M31-Mini
+# M31-Mini - AI-Powered Code Assistant
 
-M31-Mini is a professional Python code generator built with Next.js and React. It uses the OpenRouter API to access powerful AI models for generating clean, efficient, and production-ready Python code without comments.
+M31-Mini is an intelligent code assistant that uses agentic AI capabilities to analyze repositories, understand codebases, and generate high-quality code. Similar to tools like Blackbox and Cline, it can index entire repositories and provide comprehensive code assistance.
 
 ## Features
 
-- Generate professional Python code using cutting-edge AI models
-- Clean, efficient, and production-ready code without comments
-- Syntax highlighting for better code readability
-- Copy and download generated code
-- Chat history to keep track of your prompts and responses
-- Support for multiple AI models via OpenRouter
-- **NEW: GitHub Repository Analysis** - Clone any public repository and get AI-powered insights and code suggestions
-
-## GitHub Repository Analysis
-
-The new GitHub repository analysis feature allows you to:
-
-1. Clone any public GitHub repository directly in the browser
-2. Analyze repository structure and content with AI
-3. Get intelligent code suggestions and improvements
-4. Identify security vulnerabilities and bugs
-5. Understand complex codebases quickly
-
-To use this feature:
-1. Enter a valid GitHub repository URL in the repository input field
-2. Wait for the repository to be cloned and analyzed
-3. Ask questions about the codebase or request specific analyses
-4. Receive detailed AI-generated responses based on the repository content
+- **Repository Analysis**: Clone and analyze GitHub repositories, understanding their structure and purpose
+- **Code Generation**: Generate code in multiple languages with proper syntax highlighting
+- **AI-Powered Agent**: Act as an agentic assistant to help with code exploration and generation
+- **OpenRouter Integration**: Uses free models from OpenRouter's API for AI functionality
+- **Syntax highlighting** for better code readability
+- **File tree navigation** for repository exploration
+- **Multiple model support** with different capabilities for various tasks
 
 ## Getting Started
 
-### Prerequisites
+1. Clone this repository
+2. Install dependencies with `npm install`
+3. Start the development server with `npm run dev`
+4. Open [http://localhost:3000](http://localhost:3000) in your browser
 
-- Node.js 16.x or later
-- npm or yarn
-- OpenRouter API key
+## API Key Setup
 
-### Installation
+M31-Mini requires an OpenRouter API key to function. You can get a free API key from [OpenRouter](https://openrouter.ai/keys).
 
-1. Clone the repository:
+1. Click on the "API Key" button in the app header
+2. Enter your OpenRouter API key
+3. Click "Save Key"
 
-```bash
-git clone https://github.com/yourusername/m31-mini.git
-cd m31-mini
-```
+## Models Used
 
-2. Install dependencies:
+The application uses several free models from OpenRouter:
 
-```bash
-npm install
-# or
-yarn install
-```
+- Claude Instant (Anthropic)
+- Llama 2 (Meta)
+- PaLM 2 (Google)
+- Gemini Pro (Google)
+- Mistral (7B)
+- Mixtral (8x7B)
 
-3. Run the development server:
+## Repository Analysis
 
-```bash
-npm run dev
-# or
-yarn dev
-```
+M31-Mini can index and analyze entire codebases:
 
-4. Open [http://localhost:3000](http://localhost:3000) in your browser.
+1. Navigate to the Repository page
+2. Enter a GitHub repository URL
+3. Click "Load Repository"
+4. Once loaded, you can browse files or use the Agent to ask questions about the codebase
 
-5. Enter your OpenRouter API key when prompted.
-
-## Usage
-
-1. Enter your prompt describing the Python code you want to generate
-2. Choose your preferred AI model from the dropdown
-3. Wait for the code to be generated
-4. Copy or download the generated code
-
-## Built With
+## Technology Stack
 
 - [Next.js](https://nextjs.org/) - React framework
-- [React](https://reactjs.org/) - UI library
-- [Tailwind CSS](https://tailwindcss.com/) - CSS framework
-- [OpenRouter](https://openrouter.ai/) - API for accessing various AI models
+- [TypeScript](https://www.typescriptlang.org/) - Type-safe JavaScript
+- [Tailwind CSS](https://tailwindcss.com/) - Utility-first CSS framework
+- [OpenRouter API](https://openrouter.ai/) - AI model provider
 - [react-syntax-highlighter](https://github.com/react-syntax-highlighter/react-syntax-highlighter) - Syntax highlighting for code
-- [Zustand](https://github.com/pmndrs/zustand) - State management
+- [Framer Motion](https://www.framer.com/motion/) - Animation library
 
 ## License
 

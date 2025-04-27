@@ -3,6 +3,11 @@ import Navbar from './Navbar';
 import Head from 'next/head';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FiCode, FiGithub, FiExternalLink, FiHeart } from 'react-icons/fi';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { FiCpu, FiClock, FiSave, FiSearch, FiBarChart2, FiBookOpen } from 'react-icons/fi';
+import APIKeyInput from './APIKeyInput';
+import ModelSelector from './ModelSelector';
 
 interface LayoutProps {
   children: ReactNode;
@@ -168,20 +173,19 @@ export default function Layout({
                         A powerful Python code generator built with Next.js and React, 
                         designed to create professional, comment-free code using OpenRouter API.
                       </p>
-                      <motion.div 
-                        className="flex space-x-4"
-                        whileHover={{ scale: 1.05 }}
-                      >
+                      <div className="flex items-center space-x-4">
+                        <APIKeyInput />
+                        <ModelSelector />
                         <a 
-                          href="https://github.com/yourusername/m31-mini"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-gray-400 hover:text-white transition-colors"
-                          aria-label="GitHub"
+                          href="https://github.com/yourusername/M31-Mini" 
+                          target="_blank" 
+                          rel="noopener noreferrer" 
+                          className="flex items-center px-3 py-1 text-gray-400 hover:text-white transition-colors"
                         >
-                          <FiGithub className="h-5 w-5" />
+                          <FiGithub className="mr-2" />
+                          <span>GitHub</span>
                         </a>
-                      </motion.div>
+                      </div>
                     </div>
                     
                     <div>
