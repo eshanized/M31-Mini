@@ -30,10 +30,21 @@ export default function AgentPage() {
   const [fileEdits, setFileEdits] = useState<FileEdit[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   
+  // State for managing open directories
+  const [openDirs, setOpenDirs] = useState<Record<string, boolean>>({});
+  
   // State for repository URL input
   const [repoUrl, setRepoUrl] = useState('');
   const [recentRepos, setRecentRepos] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  
+  // Toggle directory open/closed state
+  const toggleDirOpen = (path: string) => {
+    setOpenDirs(prev => ({
+      ...prev,
+      [path]: !prev[path]
+    }));
+  };
   
   // Load recent repositories from localStorage
   useEffect(() => {
@@ -175,14 +186,17 @@ export default function AgentPage() {
     }
     
     if (node.type === 'dir' && node.children) {
-      const [isOpen, setIsOpen] = useState(depth === 0);
+      // Initialize directory state if it doesn't exist
+      const isOpen = openDirs[node.path] === undefined 
+        ? depth === 0  // Root directories are open by default
+        : openDirs[node.path];
       
       return (
         <div key={node.path}>
           <div 
             className="py-1 px-2 flex items-center cursor-pointer hover:bg-dark-100 rounded text-gray-200"
             style={{ paddingLeft }}
-            onClick={() => setIsOpen(!isOpen)}
+            onClick={() => toggleDirOpen(node.path)}
           >
             <FiFolder className="mr-2 text-accent-400 flex-shrink-0" />
             <span className="font-medium text-sm">{node.name}</span>
@@ -199,6 +213,32 @@ export default function AgentPage() {
     
     return null;
   };
+  
+  // Initialize directory states when file tree changes
+  useEffect(() => {
+    if (fileTree) {
+      const initialOpenState: Record<string, boolean> = {};
+      
+      // Helper function to recursively set initial open state
+      const processNode = (node: any, depth: number = 0) => {
+        if (node.type === 'dir') {
+          // Set the path as a property of initialOpenState
+          initialOpenState[node.path] = depth === 0;
+          
+          // Process children
+          if (node.children) {
+            node.children.forEach((child: any) => processNode(child, depth + 1));
+          }
+        }
+      };
+      
+      // Start processing from the root
+      processNode(fileTree);
+      
+      // Set the initial state
+      setOpenDirs(initialOpenState);
+    }
+  }, [fileTree]);
   
   // Determine language for syntax highlighting
   const getLanguage = (filename: string): string => {
