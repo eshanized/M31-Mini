@@ -154,10 +154,24 @@ When providing solutions, ensure they align with the repository's structure and 
       });
 
       if (!response.ok) {
-        throw new Error(`API request failed with status ${response.status}`);
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(`API request failed with status ${response.status}: ${
+          errorData.error?.message || 'Unknown error'
+        }`);
       }
 
       const data = await response.json();
+      
+      // Check that data and choices exist before accessing
+      if (!data || !data.choices || !Array.isArray(data.choices) || data.choices.length === 0) {
+        throw new Error('Invalid response structure from API');
+      }
+      
+      // Check that the first choice has a message with content
+      if (!data.choices[0].message || typeof data.choices[0].message.content !== 'string') {
+        throw new Error('Response is missing content');
+      }
+
       return data.choices[0].message.content;
     } catch (error) {
       console.error('Error generating code:', error);
@@ -505,10 +519,24 @@ Please provide a Python solution that integrates well with this repository.`;
       });
 
       if (!response.ok) {
-        throw new Error(`API request failed with status ${response.status}`);
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(`API request failed with status ${response.status}: ${
+          errorData.error?.message || 'Unknown error'
+        }`);
       }
 
       const data = await response.json();
+      
+      // Check that data and choices exist before accessing
+      if (!data || !data.choices || !Array.isArray(data.choices) || data.choices.length === 0) {
+        throw new Error('Invalid response structure from API');
+      }
+      
+      // Check that the first choice has a message with content
+      if (!data.choices[0].message || typeof data.choices[0].message.content !== 'string') {
+        throw new Error('Response is missing content');
+      }
+
       return data.choices[0].message.content;
     } catch (error) {
       console.error('Error generating completion:', error);
