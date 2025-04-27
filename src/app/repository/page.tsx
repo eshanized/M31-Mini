@@ -3,12 +3,74 @@
 import React, { useEffect, useState } from 'react';
 import Layout from '../../components/Layout';
 import { motion } from 'framer-motion';
-import { FiGitBranch, FiFolder, FiFile, FiSearch, FiCopy, FiRefreshCw, FiCode, FiExternalLink } from 'react-icons/fi';
+import { FiGitBranch, FiFolder, FiFile, FiSearch, FiCopy, FiRefreshCw, FiCode, FiExternalLink, FiCpu } from 'react-icons/fi';
 import { useAppStore } from '../../lib/store';
 import GitHubRepoInput from '../../components/GitHubRepoInput';
 import Link from 'next/link';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/cjs/styles/prism';
+
+// FileTreeItem component to handle rendering files and folders
+const FileTreeItem = ({ 
+  node, 
+  depth = 0, 
+  selectedFile, 
+  onFileSelect 
+}: {
+  node: any;
+  depth?: number;
+  selectedFile: string | null;
+  onFileSelect: (path: string) => void;
+}) => {
+  const [isOpen, setIsOpen] = useState(depth === 0);
+  const paddingLeft = `${depth * 16}px`;
+
+  if (node.type === 'file') {
+    return (
+      <div 
+        className={`py-1 px-2 flex items-center cursor-pointer hover:bg-dark-100 rounded ${
+          selectedFile === node.path ? 'bg-primary-900/20 text-primary-300' : 'text-gray-300'
+        }`}
+        style={{ paddingLeft }}
+        onClick={() => onFileSelect(node.path)}
+      >
+        <FiFile className="mr-2 flex-shrink-0" />
+        <span className="truncate text-sm">{node.name}</span>
+      </div>
+    );
+  }
+
+  if (node.type === 'dir' && node.children) {
+    return (
+      <div>
+        <div 
+          className="py-1 px-2 flex items-center cursor-pointer hover:bg-dark-100 rounded text-gray-200"
+          style={{ paddingLeft }}
+          onClick={() => setIsOpen(!isOpen)}
+        >
+          <FiFolder className="mr-2 text-primary-400 flex-shrink-0" />
+          <span className="font-medium text-sm">{node.name}</span>
+        </div>
+        
+        {isOpen && (
+          <div>
+            {node.children.map((child: any) => (
+              <FileTreeItem 
+                key={child.path}
+                node={child}
+                depth={depth + 1}
+                selectedFile={selectedFile}
+                onFileSelect={onFileSelect}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return null;
+};
 
 export default function RepositoryPage() {
   const { 
@@ -29,6 +91,9 @@ export default function RepositoryPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredFiles, setFilteredFiles] = useState<string[]>([]);
   const [copiedToClipboard, setCopiedToClipboard] = useState(false);
+  
+  // Open folders tracking
+  const [openFolders, setOpenFolders] = useState<Record<string, boolean>>({});
   
   // Initialize service
   useEffect(() => {
@@ -108,54 +173,6 @@ export default function RepositoryPage() {
     setFilteredFiles(searchResults);
   }, [searchQuery, fileTree]);
   
-  // Render file tree recursively
-  const renderFileTree = (node: any, depth: number = 0) => {
-    if (!node) return null;
-    
-    const paddingLeft = `${depth * 16}px`;
-    
-    if (node.type === 'file') {
-      return (
-        <div 
-          key={node.path}
-          className={`py-1 px-2 flex items-center cursor-pointer hover:bg-dark-100 rounded ${
-            selectedFile === node.path ? 'bg-primary-900/20 text-primary-300' : 'text-gray-300'
-          }`}
-          style={{ paddingLeft }}
-          onClick={() => handleFileSelect(node.path)}
-        >
-          <FiFile className="mr-2 flex-shrink-0" />
-          <span className="truncate text-sm">{node.name}</span>
-        </div>
-      );
-    }
-    
-    if (node.type === 'dir' && node.children) {
-      const [isOpen, setIsOpen] = useState(depth === 0);
-      
-      return (
-        <div key={node.path}>
-          <div 
-            className="py-1 px-2 flex items-center cursor-pointer hover:bg-dark-100 rounded text-gray-200"
-            style={{ paddingLeft }}
-            onClick={() => setIsOpen(!isOpen)}
-          >
-            <FiFolder className="mr-2 text-primary-400 flex-shrink-0" />
-            <span className="font-medium text-sm">{node.name}</span>
-          </div>
-          
-          {isOpen && (
-            <div>
-              {node.children.map((child: any) => renderFileTree(child, depth + 1))}
-            </div>
-          )}
-        </div>
-      );
-    }
-    
-    return null;
-  };
-  
   // Get stats for file types
   const getFileTypeStats = () => {
     if (!githubRepo?.fileTypes) return [];
@@ -211,6 +228,66 @@ export default function RepositoryPage() {
       setCopiedToClipboard(true);
       setTimeout(() => setCopiedToClipboard(false), 2000);
     }
+  };
+  
+  // Modified renderFileTree function that doesn't use hooks internally
+  const renderFileTree = (node: any, depth: number = 0) => {
+    if (!node) return null;
+    
+    const paddingLeft = `${depth * 16}px`;
+    
+    if (node.type === 'file') {
+      return (
+        <div 
+          key={node.path}
+          className={`py-1 px-2 flex items-center cursor-pointer hover:bg-dark-100 rounded ${
+            selectedFile === node.path ? 'bg-primary-900/20 text-primary-300' : 'text-gray-300'
+          }`}
+          style={{ paddingLeft }}
+          onClick={() => handleFileSelect(node.path)}
+        >
+          <FiFile className="mr-2 flex-shrink-0" />
+          <span className="truncate text-sm">{node.name}</span>
+        </div>
+      );
+    }
+    
+    if (node.type === 'dir' && node.children) {
+      // Initialize folder state if not already set
+      if (openFolders[node.path] === undefined) {
+        const newOpenFolders = {...openFolders};
+        newOpenFolders[node.path] = depth === 0; // Open root folders by default
+        setOpenFolders(newOpenFolders);
+        return null; // Return null on first render to avoid too many re-renders
+      }
+      
+      const isOpen = openFolders[node.path];
+      
+      return (
+        <div key={node.path}>
+          <div 
+            className="py-1 px-2 flex items-center cursor-pointer hover:bg-dark-100 rounded text-gray-200"
+            style={{ paddingLeft }}
+            onClick={() => {
+              const newOpenFolders = {...openFolders};
+              newOpenFolders[node.path] = !isOpen;
+              setOpenFolders(newOpenFolders);
+            }}
+          >
+            <FiFolder className="mr-2 text-primary-400 flex-shrink-0" />
+            <span className="font-medium text-sm">{node.name}</span>
+          </div>
+          
+          {isOpen && node.children && (
+            <div>
+              {node.children.map((child: any) => renderFileTree(child, depth + 1))}
+            </div>
+          )}
+        </div>
+      );
+    }
+    
+    return null;
   };
   
   return (
@@ -303,6 +380,14 @@ export default function RepositoryPage() {
                     <FiCode className="mr-2" /> Generate Code for this Repo
                   </Link>
                 </div>
+
+                {/* Add button to open in the Agent Explorer */}
+                <Link 
+                  href="/agent" 
+                  className="btn btn-primary w-full flex justify-center items-center text-sm mt-2"
+                >
+                  <FiCpu className="mr-2" /> Open in AI Agent Explorer
+                </Link>
               </motion.div>
               
               {/* File search */}
@@ -350,7 +435,9 @@ export default function RepositoryPage() {
                 <h3 className="text-sm font-medium text-white mb-3">Files</h3>
                 <div className="max-h-[400px] overflow-auto scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-dark-300">
                   {fileTree ? (
-                    renderFileTree(fileTree)
+                    <div>
+                      {renderFileTree(fileTree)}
+                    </div>
                   ) : (
                     <div className="flex justify-center items-center h-32 text-gray-500">
                       <FiRefreshCw className="animate-spin mr-2" />
@@ -451,4 +538,4 @@ export default function RepositoryPage() {
       </div>
     </Layout>
   );
-} 
+}

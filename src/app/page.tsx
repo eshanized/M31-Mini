@@ -111,6 +111,68 @@ export default function Home() {
           </motion.div>
         </div>
         
+        {/* Agent AI Feature Section */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.4 }}
+          className="mb-16"
+        >
+          <div className="card overflow-hidden">
+            <div className="grid grid-cols-1 md:grid-cols-2">
+              <div className="p-8 flex flex-col justify-center">
+                <h2 className="text-2xl font-bold text-white mb-4">New: AI Agent Explorer</h2>
+                <p className="text-gray-300 mb-6">
+                  Our new AI Agent feature lets you explore, analyze, and modify repository code with AI assistance. Use the agent to identify bugs, suggest improvements, generate new functionality, and refactor code.
+                </p>
+                <div className="space-y-4">
+                  <div className="flex items-start">
+                    <div className="bg-accent-500/20 p-1 rounded mr-3 text-accent-400">
+                      <FiCode className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-white font-medium">VSCode-Like Interface</h3>
+                      <p className="text-gray-400 text-sm">Navigate repository files and edit code with an intuitive interface</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start">
+                    <div className="bg-accent-500/20 p-1 rounded mr-3 text-accent-400">
+                      <FiCpu className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-white font-medium">Agentic AI Assistant</h3>
+                      <p className="text-gray-400 text-sm">Get intelligent code suggestions and analysis from the AI agent</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-6">
+                  <Link 
+                    href="/agent" 
+                    className="btn btn-primary inline-flex items-center"
+                  >
+                    <FiCpu className="mr-2" />
+                    Try AI Agent Explorer
+                    <FiArrowRight className="ml-2" />
+                  </Link>
+                </div>
+              </div>
+              <div className="bg-dark-300 p-8 flex items-center justify-center">
+                <div className="relative w-full h-60 bg-dark-100 rounded-lg border border-gray-800 overflow-hidden">
+                  <div className="absolute inset-0 flex items-center justify-center text-accent-500/30">
+                    <FiCpu className="h-20 w-20" />
+                  </div>
+                  <div className="absolute bottom-0 left-0 right-0 bg-dark-200/80 backdrop-blur-sm p-4">
+                    <div className="text-center">
+                      <h3 className="text-white font-medium">AI Agent Explorer</h3>
+                      <p className="text-accent-400 text-sm">Explore, analyze and modify code with AI</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+        
         {/* CTA Section */}
         <motion.div
           initial={{ opacity: 0 }}
@@ -133,6 +195,13 @@ export default function Home() {
               >
                 <FiGitBranch className="h-4 w-4 mr-2" />
                 <span>Explore Repositories</span>
+              </Link>
+              <Link 
+                href="/agent" 
+                className="inline-flex items-center space-x-2 px-6 py-3 bg-primary-600/80 hover:bg-primary-700 text-white font-medium rounded-lg transition-all"
+              >
+                <FiCpu className="h-4 w-4 mr-2" />
+                <span>AI Agent Explorer</span>
               </Link>
               <Link 
                 href="/examples" 

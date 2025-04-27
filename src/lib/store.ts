@@ -7,6 +7,12 @@ interface ChatMessage {
   content: string;
 }
 
+interface FileEdit {
+  path: string;
+  originalContent: string;
+  editedContent: string;
+}
+
 interface AppState {
   apiKey: string;
   aiService: AIService | null;
@@ -20,6 +26,7 @@ interface AppState {
   githubRepo: GitHubRepo | null;
   isLoadingRepo: boolean;
   repoLoadingProgress: number;
+  fileEdits: FileEdit[];
   
   setApiKey: (key: string) => void;
   setCurrentPrompt: (prompt: string) => void;
@@ -36,6 +43,9 @@ interface AppState {
   setRepoLoadingProgress: (progress: number) => void;
   fetchGithubRepo: (repoUrl: string) => Promise<void>;
   analyzeRepositoryCode: (prompt: string) => Promise<void>;
+  addFileEdit: (edit: FileEdit) => void;
+  clearFileEdits: () => void;
+  analyzeCodeWithAgent: (prompt: string, filePath?: string, fileContent?: string) => Promise<string>;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -51,6 +61,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   githubRepo: null,
   isLoadingRepo: false,
   repoLoadingProgress: 0,
+  fileEdits: [],
   
   setApiKey: (key: string) => {
     if (typeof window !== 'undefined') {
@@ -171,6 +182,57 @@ export const useAppStore = create<AppState>((set, get) => ({
         role: 'assistant',
         content: `Error analyzing repository: ${error instanceof Error ? error.message : 'Unknown error'}`
       });
+    } finally {
+      set({ isGenerating: false });
+    }
+  },
+  
+  addFileEdit: (edit) => {
+    const { fileEdits } = get();
+    const existingEditIndex = fileEdits.findIndex(e => e.path === edit.path);
+    
+    if (existingEditIndex >= 0) {
+      const updatedEdits = [...fileEdits];
+      updatedEdits[existingEditIndex] = edit;
+      set({ fileEdits: updatedEdits });
+    } else {
+      set({ fileEdits: [...fileEdits, edit] });
+    }
+  },
+  
+  clearFileEdits: () => {
+    set({ fileEdits: [] });
+  },
+  
+  analyzeCodeWithAgent: async (prompt, filePath, fileContent) => {
+    const { aiService, selectedModel } = get();
+    if (!aiService) return '';
+    
+    if (typeof window === 'undefined') {
+      console.warn('GitHub repository features are only available in browser environments');
+      return '';
+    }
+    
+    set({ isGenerating: true });
+    
+    try {
+      let fullPrompt = prompt;
+      
+      // Add file context if provided
+      if (filePath && fileContent) {
+        fullPrompt = `File: ${filePath}\n\n${fileContent}\n\n${prompt}`;
+      }
+      
+      // Call the AI service to analyze the code
+      const response = await aiService.analyzeRepositoryCode(
+        `Act as an agentic AI assistant for code exploration and generation. ${fullPrompt}`, 
+        selectedModel as any
+      );
+      
+      return response;
+    } catch (error) {
+      console.error('Error analyzing code with agent:', error);
+      return `Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
     } finally {
       set({ isGenerating: false });
     }
