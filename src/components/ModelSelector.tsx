@@ -32,6 +32,11 @@ export default function ModelSelector() {
     return provider.charAt(0).toUpperCase() + provider.slice(1);
   };
   
+  // Check if model is free
+  const isModelFree = (model: string): boolean => {
+    return model.includes(':free') || model.includes('llama-3-8b-instruct');
+  };
+  
   // Close menu when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -60,6 +65,9 @@ export default function ModelSelector() {
           <FiCpu className="h-4 w-4 mr-2 text-primary-400" />
           <span>{formatModelName(selectedModel)}</span>
           <span className="ml-2 text-xs opacity-60">({getModelProvider(selectedModel)})</span>
+          {isModelFree(selectedModel) && (
+            <span className="ml-2 text-xs bg-green-900/50 text-green-300 px-1.5 py-0.5 rounded-full">Free</span>
+          )}
         </div>
         {isMenuOpen ? <FiChevronUp className="h-4 w-4 ml-2" /> : <FiChevronDown className="h-4 w-4 ml-2" />}
       </button>
@@ -88,7 +96,14 @@ export default function ModelSelector() {
                         : 'text-gray-300 hover:bg-dark-200'
                     }`}
                   >
-                    <span>{formatModelName(model)}</span>
+                    <div className="flex items-center">
+                      <span>{formatModelName(model)}</span>
+                      {isModelFree(model) ? (
+                        <span className="ml-2 text-xs bg-green-900/50 text-green-300 px-1.5 py-0.5 rounded-full">Free</span>
+                      ) : (
+                        <span className="ml-2 text-xs bg-yellow-900/30 text-yellow-300 px-1.5 py-0.5 rounded-full">Paid</span>
+                      )}
+                    </div>
                     <span className="text-xs opacity-60">{getModelProvider(model)}</span>
                   </button>
                 ))

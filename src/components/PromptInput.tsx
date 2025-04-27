@@ -140,7 +140,7 @@ export default function PromptInput() {
         // Use normal code generation flow
         await aiService.streamPythonCode(
           currentPrompt,
-          selectedModel,
+          selectedModel as any,
           (chunk) => {
             setStreamingText(prev => prev + chunk);
           },
@@ -200,6 +200,10 @@ export default function PromptInput() {
   useEffect(() => {
     setAnalyzeMode(githubRepo ? 'github' : 'normal');
   }, [githubRepo]);
+  
+  const isModelFree = (model: string): boolean => {
+    return model.includes(':free') || model.includes('llama-3-8b-instruct');
+  };
   
   return (
     <div className="relative">
@@ -338,7 +342,10 @@ export default function PromptInput() {
               className="flex items-center space-x-1 text-sm text-gray-400 hover:text-white transition-colors group"
             >
               <span>Model: <span className="text-primary-400 font-medium">{selectedModel.split('/').pop()}</span></span>
-              {isMenuOpen ? <FiChevronUp className="h-4 w-4" /> : <FiChevronDown className="h-4 w-4" />}
+              {isModelFree(selectedModel) && (
+                <span className="ml-1 text-xs bg-green-900/50 text-green-300 px-1.5 py-0.5 rounded-full">Free</span>
+              )}
+              {isMenuOpen ? <FiChevronUp className="h-4 w-4 ml-1" /> : <FiChevronDown className="h-4 w-4 ml-1" />}
             </button>
             
             <AnimatePresence>
@@ -361,7 +368,14 @@ export default function PromptInput() {
                           selectedModel === model ? 'bg-gray-800 text-primary-400' : 'text-gray-300'
                         }`}
                       >
-                        <span>{model.split('/').pop()}</span>
+                        <div className="flex items-center">
+                          <span>{model.split('/').pop()}</span>
+                          {isModelFree(model) ? (
+                            <span className="ml-2 text-xs bg-green-900/50 text-green-300 px-1.5 py-0.5 rounded-full">Free</span>
+                          ) : (
+                            <span className="ml-2 text-xs bg-yellow-900/30 text-yellow-300 px-1.5 py-0.5 rounded-full">Paid</span>
+                          )}
+                        </div>
                         {promptCategory !== 'default' && model === aiService?.getModelRecommendation(promptCategory) && (
                           <span className="text-xs bg-primary-900/50 text-primary-300 px-2 py-0.5 rounded-full">Recommended</span>
                         )}
