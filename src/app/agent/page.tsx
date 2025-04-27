@@ -2,10 +2,10 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useAppStore } from '@/lib/store';
-import { FiCode, FiSearch, FiFolder, FiFile, FiEdit, FiRefreshCw, FiSave, FiRotateCw, FiCheck, FiX } from 'react-icons/fi';
+import { FiCode, FiSearch, FiFolder, FiFile, FiEdit, FiRefreshCw, FiSave, FiRotateCw, FiCheck, FiX, FiTerminal, FiTarget, FiZap, FiCpu, FiAlertTriangle, FiInfo } from 'react-icons/fi';
 import CodeEditor from '@/components/CodeEditor';
 import Layout from '@/components/Layout';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { FileTree } from '@/services/github-service';
 
 interface FileEdit {
@@ -15,7 +15,7 @@ interface FileEdit {
 }
 
 export default function AgentPage() {
-  const { aiService, githubRepo, fetchGithubRepo, isLoadingRepo, repoLoadingProgress } = useAppStore();
+  const { aiService, githubRepo, fetchGithubRepo, isLoadingRepo, repoLoadingProgress, apiStatus, checkApiConnectivity } = useAppStore();
   const [fileTree, setFileTree] = useState<FileTree | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [fileContent, setFileContent] = useState<string>('');
@@ -37,6 +37,21 @@ export default function AgentPage() {
   const [repoUrl, setRepoUrl] = useState('');
   const [recentRepos, setRecentRepos] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  
+  // Enhanced agent modes with autonomous capabilities
+  const [agentMode, setAgentMode] = useState<'analyze' | 'generate' | 'edit' | 'create' | 'solve' | 'autonomous' | 'search' | 'test'>('analyze');
+  const [targetLanguage, setTargetLanguage] = useState<string>('');
+  const [newFileName, setNewFileName] = useState<string>('');
+  const [newFilePath, setNewFilePath] = useState<string>('');
+  const [isCreatingFile, setIsCreatingFile] = useState(false);
+  const [foundFiles, setFoundFiles] = useState<string[]>([]);
+  const [selectedImplementationTab, setSelectedImplementationTab] = useState<'implementation' | 'tests'>('implementation');
+  const [implementationCode, setImplementationCode] = useState<string>('');
+  const [testCode, setTestCode] = useState<string>('');
+  
+  // Add error state for better error handling
+  const [agentError, setAgentError] = useState<string | null>(null);
+  const [isRecovering, setIsRecovering] = useState(false);
   
   // Toggle directory open/closed state
   const toggleDirOpen = (path: string) => {
@@ -318,46 +333,148 @@ export default function AgentPage() {
     setEditedContent(fileContent);
   };
 
-  // Process agent query
+  // Check API connectivity when component mounts or when API service changes
+  useEffect(() => {
+    if (aiService) {
+      checkApiConnectivity();
+    }
+  }, [aiService, checkApiConnectivity]);
+
+  // Process agent query - check API connectivity before submitting
   const handleAgentSubmit = async () => {
     if (!aiService || !agentPrompt.trim()) {
       setAgentResponse("Error: Please enter a prompt and ensure API key is set");
       return;
     }
     
+    // Check API connectivity first
+    await checkApiConnectivity();
+    if (apiStatus.status === 'error') {
+      setAgentError('API connectivity issue: ' + (apiStatus.message || 'Unknown error'));
+      setAgentResponse("I'm having trouble connecting to the AI service. Please check your internet connection and API key.");
+      return;
+    }
+    
+    setAgentError(null);
     setIsAgentProcessing(true);
     setAgentResponse(null);
+    setFoundFiles([]);
+    setImplementationCode('');
+    setTestCode('');
     
     try {
       // Track if we're analyzing a specific file or the whole repository
-      const isFileAnalysis = selectedFile !== null;
+      const isFileAnalysis = selectedFile !== null && agentMode === 'analyze';
       
-      const analysisPrompt = `
+      let response;
+      
+      // Handle different agent modes
+      switch (agentMode) {
+        case 'analyze':
+          const analysisPrompt = `
 Analyze the following ${isFileAnalysis ? 'file' : 'repository'} and respond to this request:
 
 ${agentPrompt}
 
 ${isFileAnalysis ? 'Focus on the specific file provided.' : 'Consider the entire repository structure and patterns.'}
 `;
-      
-      let response;
-      try {
-        if (isFileAnalysis && selectedFile) {
-          // For file-specific analysis
-          response = await useAppStore.getState().analyzeCodeWithAgent(
-            analysisPrompt,
-            selectedFile,
-            fileContent
+          
+          if (isFileAnalysis && selectedFile) {
+            // For file-specific analysis
+            response = await useAppStore.getState().analyzeCodeWithAgent(
+              analysisPrompt,
+              selectedFile,
+              fileContent
+            );
+          } else if (githubRepo) {
+            // For whole repository analysis
+            response = await useAppStore.getState().analyzeCodeWithAgent(analysisPrompt);
+          } else {
+            throw new Error("No repository loaded. Please load a repository first.");
+          }
+          break;
+          
+        case 'generate':
+          // Generate new code
+          response = await useAppStore.getState().generateCodeWithAgent(agentPrompt, targetLanguage);
+          break;
+          
+        case 'edit':
+          // Edit the current file
+          if (!selectedFile) {
+            throw new Error("Please select a file to edit first.");
+          }
+          
+          const relativePath = selectedFile.replace(`/${githubRepo?.owner}/${githubRepo?.name}/`, '');
+          response = await useAppStore.getState().editFileWithAgent(relativePath, agentPrompt);
+          
+          // Set the edited content for immediate use
+          setEditedContent(response);
+          setIsEditingFile(true);
+          break;
+          
+        case 'create':
+          // Create a new file
+          if (!newFilePath || !newFileName) {
+            throw new Error("Please specify both file path and name.");
+          }
+          
+          setIsCreatingFile(true);
+          response = await useAppStore.getState().createFileWithAgent(
+            newFilePath,
+            newFileName,
+            agentPrompt
           );
-        } else if (githubRepo) {
-          // For whole repository analysis
-          response = await aiService.analyzeRepositoryCode(analysisPrompt);
-        } else {
-          throw new Error("No repository loaded. Please load a repository first.");
-        }
-      } catch (e) {
-        console.error("Error during analysis:", e);
-        throw new Error(`Analysis failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
+          
+          // Add the new file to edits
+          const newEdit: FileEdit = {
+            path: `${newFilePath}/${newFileName}`,
+            originalContent: '',
+            editedContent: response
+          };
+          
+          setFileEdits([...fileEdits, newEdit]);
+          break;
+          
+        case 'solve':
+          // Autonomous problem solving
+          const solutionResult = await useAppStore.getState().solveCodeProblem(agentPrompt);
+          response = solutionResult.explanation;
+          
+          // Display files that were created/modified
+          if (solutionResult.files && solutionResult.files.length > 0) {
+            response += "\n\nModified files:\n" + 
+              solutionResult.files.map(file => `- ${file.path}`).join('\n');
+          }
+          break;
+          
+        case 'autonomous':
+          // Autonomous search and modify
+          const autonomousResult = await useAppStore.getState().autonomousSearchAndModify(agentPrompt);
+          response = autonomousResult.explanation;
+          
+          // Display files that were modified
+          if (autonomousResult.modifications && autonomousResult.modifications.length > 0) {
+            response += "\n\nModified files:\n" + 
+              autonomousResult.modifications.map(mod => `- ${mod.path}`).join('\n');
+          }
+          break;
+          
+        case 'search':
+          // Search files by functionality
+          const searchResults = await useAppStore.getState().searchFilesByFunctionality(agentPrompt);
+          setFoundFiles(searchResults);
+          response = `Found ${searchResults.length} relevant files for the specified functionality:\n\n` + 
+            searchResults.map((file, index) => `${index + 1}. ${file}`).join('\n');
+          break;
+          
+        case 'test':
+          // Generate code with tests
+          const testResult = await useAppStore.getState().generateCodeWithTests(agentPrompt, targetLanguage);
+          setImplementationCode(testResult.implementation);
+          setTestCode(testResult.tests);
+          response = "Generated implementation and tests. See the tabs below to view each.";
+          break;
       }
       
       if (!response) {
@@ -367,9 +484,72 @@ ${isFileAnalysis ? 'Focus on the specific file provided.' : 'Consider the entire
       setAgentResponse(response);
     } catch (error) {
       console.error('Error in agent processing:', error);
-      setAgentResponse(`Error: ${error instanceof Error ? error.message : 'An unknown error occurred'}`);
+      const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
+      setAgentError(errorMessage);
+      
+      // Set a more user-friendly error message based on the error
+      if (errorMessage.includes('Invalid response structure') || 
+          errorMessage.includes('Invalid response format') ||
+          errorMessage.includes('API request failed')) {
+        setAgentResponse(
+          "I encountered an error communicating with the AI service. " +
+          "This might be due to a temporary issue. Please try again in a moment."
+        );
+      } else if (errorMessage.includes('rate limit')) {
+        setAgentResponse(
+          "The AI service rate limit has been exceeded. " +
+          "Please wait a moment before trying again."
+        );
+      } else if (errorMessage.includes('Authentication')) {
+        setAgentResponse(
+          "There seems to be an issue with the API key. " +
+          "Please check your API key settings."
+        );
+      } else {
+        setAgentResponse(`Error: ${errorMessage}`);
+      }
     } finally {
       setIsAgentProcessing(false);
+      setIsCreatingFile(false);
+    }
+  };
+  
+  // Function to retry with a fallback model
+  const handleRetryWithFallback = async () => {
+    if (!aiService || !agentPrompt.trim()) return;
+    
+    setIsRecovering(true);
+    setAgentError(null);
+    setAgentResponse("Retrying with a more stable model...");
+    
+    try {
+      // Use a more stable model as fallback
+      const fallbackModel = 'google/gemini-pro';
+      let response;
+      
+      // Simplified retry with fallback model
+      if (agentMode === 'analyze') {
+        response = await aiService.analyzeRepositoryCode(agentPrompt, fallbackModel as any);
+      } else if (agentMode === 'generate') {
+        response = await aiService.generateCodeWithAgent(agentPrompt, targetLanguage, fallbackModel as any);
+      } else if (agentMode === 'edit' && selectedFile) {
+        const relativePath = selectedFile.replace(`/${githubRepo?.owner}/${githubRepo?.name}/`, '');
+        response = await aiService.editFile(relativePath, agentPrompt, fallbackModel as any);
+        setEditedContent(response);
+        setIsEditingFile(true);
+      } else {
+        throw new Error("Cannot retry in current mode");
+      }
+      
+      if (response) {
+        setAgentResponse(response);
+        setAgentError(null);
+      }
+    } catch (error) {
+      console.error('Error in fallback processing:', error);
+      setAgentError(error instanceof Error ? error.message : 'Fallback attempt failed');
+    } finally {
+      setIsRecovering(false);
     }
   };
   
@@ -400,7 +580,436 @@ ${isFileAnalysis ? 'Focus on the specific file provided.' : 'Consider the entire
       setIsSaving(false);
     }
   };
-  
+
+  // UI for the Agent interface
+  const renderAgentInterface = () => {
+    return (
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.3, delay: 0.1 }}
+        className="bg-dark-200 rounded-xl border border-gray-800 p-4"
+      >
+        <h3 className="text-lg font-medium text-white mb-3">AI Agent Assistant</h3>
+        
+        <div className="mb-4">
+          <div className="flex flex-wrap gap-2 mb-3">
+            <button
+              onClick={() => setAgentMode('analyze')}
+              className={`px-3 py-1.5 rounded-md text-sm flex items-center ${
+                agentMode === 'analyze' 
+                  ? 'bg-accent-500 text-white' 
+                  : 'bg-dark-100 text-gray-300 hover:bg-dark-300'
+              }`}
+            >
+              <FiSearch className="mr-1" />
+              Analyze
+            </button>
+            <button
+              onClick={() => setAgentMode('generate')}
+              className={`px-3 py-1.5 rounded-md text-sm flex items-center ${
+                agentMode === 'generate' 
+                  ? 'bg-accent-500 text-white' 
+                  : 'bg-dark-100 text-gray-300 hover:bg-dark-300'
+              }`}
+            >
+              <FiCode className="mr-1" />
+              Generate
+            </button>
+            <button
+              onClick={() => {
+                if (selectedFile) setAgentMode('edit');
+                else setAgentResponse("Please select a file to edit first.");
+              }}
+              className={`px-3 py-1.5 rounded-md text-sm flex items-center ${
+                agentMode === 'edit' 
+                  ? 'bg-accent-500 text-white' 
+                  : 'bg-dark-100 text-gray-300 hover:bg-dark-300'
+              }`}
+              disabled={!selectedFile}
+            >
+              <FiEdit className="mr-1" />
+              Edit
+            </button>
+            <button
+              onClick={() => setAgentMode('create')}
+              className={`px-3 py-1.5 rounded-md text-sm flex items-center ${
+                agentMode === 'create' 
+                  ? 'bg-accent-500 text-white' 
+                  : 'bg-dark-100 text-gray-300 hover:bg-dark-300'
+              }`}
+            >
+              <FiFile className="mr-1" />
+              Create
+            </button>
+            <button
+              onClick={() => setAgentMode('solve')}
+              className={`px-3 py-1.5 rounded-md text-sm flex items-center ${
+                agentMode === 'solve' 
+                  ? 'bg-accent-500 text-white' 
+                  : 'bg-dark-100 text-gray-300 hover:bg-dark-300'
+              }`}
+            >
+              <FiTarget className="mr-1" />
+              Solve
+            </button>
+            <button
+              onClick={() => setAgentMode('autonomous')}
+              className={`px-3 py-1.5 rounded-md text-sm flex items-center ${
+                agentMode === 'autonomous' 
+                  ? 'bg-accent-500 text-white' 
+                  : 'bg-dark-100 text-gray-300 hover:bg-dark-300'
+              }`}
+            >
+              <FiCpu className="mr-1" />
+              Auto-Mod
+            </button>
+            <button
+              onClick={() => setAgentMode('search')}
+              className={`px-3 py-1.5 rounded-md text-sm flex items-center ${
+                agentMode === 'search' 
+                  ? 'bg-accent-500 text-white' 
+                  : 'bg-dark-100 text-gray-300 hover:bg-dark-300'
+              }`}
+            >
+              <FiSearch className="mr-1" />
+              Search
+            </button>
+            <button
+              onClick={() => setAgentMode('test')}
+              className={`px-3 py-1.5 rounded-md text-sm flex items-center ${
+                agentMode === 'test' 
+                  ? 'bg-accent-500 text-white' 
+                  : 'bg-dark-100 text-gray-300 hover:bg-dark-300'
+              }`}
+            >
+              <FiZap className="mr-1" />
+              Test
+            </button>
+          </div>
+          
+          {/* Additional options based on mode */}
+          {agentMode === 'generate' && (
+            <div className="mb-3">
+              <label className="block text-sm font-medium text-gray-400 mb-1">
+                Target Language
+              </label>
+              <select
+                value={targetLanguage}
+                onChange={(e) => setTargetLanguage(e.target.value)}
+                className="w-full bg-dark-100 border border-gray-700 rounded-md px-3 py-2 text-gray-200"
+              >
+                <option value="">Auto-detect from repository</option>
+                <option value="javascript">JavaScript</option>
+                <option value="typescript">TypeScript</option>
+                <option value="python">Python</option>
+                <option value="java">Java</option>
+                <option value="go">Go</option>
+                <option value="rust">Rust</option>
+                <option value="c++">C++</option>
+                <option value="c#">C#</option>
+              </select>
+            </div>
+          )}
+          
+          {agentMode === 'create' && (
+            <div className="space-y-3 mb-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-400 mb-1">
+                  Directory Path
+                </label>
+                <input
+                  type="text"
+                  value={newFilePath}
+                  onChange={(e) => setNewFilePath(e.target.value)}
+                  placeholder="e.g., src/components"
+                  className="w-full bg-dark-100 border border-gray-700 rounded-md px-3 py-2 text-gray-200"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-400 mb-1">
+                  File Name
+                </label>
+                <input
+                  type="text"
+                  value={newFileName}
+                  onChange={(e) => setNewFileName(e.target.value)}
+                  placeholder="e.g., Button.tsx"
+                  className="w-full bg-dark-100 border border-gray-700 rounded-md px-3 py-2 text-gray-200"
+                />
+              </div>
+            </div>
+          )}
+          
+          {agentMode === 'test' && (
+            <div className="mb-3">
+              <label className="block text-sm font-medium text-gray-400 mb-1">
+                Target Language
+              </label>
+              <select
+                value={targetLanguage}
+                onChange={(e) => setTargetLanguage(e.target.value)}
+                className="w-full bg-dark-100 border border-gray-700 rounded-md px-3 py-2 text-gray-200"
+              >
+                <option value="">Auto-detect from repository</option>
+                <option value="javascript">JavaScript</option>
+                <option value="typescript">TypeScript</option>
+                <option value="python">Python</option>
+                <option value="java">Java</option>
+                <option value="go">Go</option>
+                <option value="rust">Rust</option>
+                <option value="c++">C++</option>
+                <option value="c#">C#</option>
+              </select>
+            </div>
+          )}
+          
+          <div className="relative">
+            <textarea
+              value={agentPrompt}
+              onChange={(e) => setAgentPrompt(e.target.value)}
+              placeholder={getPromptPlaceholder()}
+              className="w-full min-h-[100px] bg-dark-100 border border-gray-700 rounded-md px-4 py-3 text-gray-100 focus:ring-2 focus:ring-accent-500 focus:border-transparent outline-none transition-all resize-y"
+              disabled={isAgentProcessing}
+            />
+            <button
+              onClick={handleAgentSubmit}
+              disabled={!agentPrompt.trim() || isAgentProcessing || (agentMode === 'create' && (!newFilePath || !newFileName))}
+              className="absolute right-3 bottom-3 px-4 py-1.5 bg-accent-500 text-white rounded-md hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+            >
+              {isAgentProcessing ? (
+                <>
+                  <FiRefreshCw className="animate-spin mr-2 h-4 w-4" />
+                  Processing...
+                </>
+              ) : (
+                <>
+                  <FiRotateCw className="mr-2 h-4 w-4" />
+                  {getButtonText()}
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+        
+        {/* Error message display */}
+        <AnimatePresence>
+          {agentError && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className="mb-4 p-3 bg-red-900/30 border border-red-800 rounded-md"
+            >
+              <div className="flex items-start">
+                <FiAlertTriangle className="text-red-400 mt-0.5 mr-2 flex-shrink-0" />
+                <div className="flex-1">
+                  <p className="text-red-300 text-sm">{agentError}</p>
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      onClick={handleRetryWithFallback}
+                      disabled={isRecovering}
+                      className="px-3 py-1 text-xs bg-dark-100 text-gray-300 rounded-md hover:bg-dark-300 flex items-center"
+                    >
+                      {isRecovering ? (
+                        <>
+                          <FiRefreshCw className="animate-spin mr-1 h-3 w-3" />
+                          Retrying...
+                        </>
+                      ) : (
+                        <>
+                          <FiRefreshCw className="mr-1 h-3 w-3" />
+                          Retry with fallback model
+                        </>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => setAgentError(null)}
+                      className="px-3 py-1 text-xs bg-dark-100 text-gray-300 rounded-md hover:bg-dark-300"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+        
+        {/* Display search results if available */}
+        {agentMode === 'search' && foundFiles.length > 0 && (
+          <div className="mb-4 p-4 bg-dark-300 rounded-md">
+            <h4 className="text-sm font-medium text-gray-300 mb-2">Found Files:</h4>
+            <div className="space-y-1 max-h-40 overflow-y-auto">
+              {foundFiles.map((file, index) => (
+                <div 
+                  key={index}
+                  className="flex items-center text-sm text-accent-300 cursor-pointer hover:underline"
+                  onClick={() => handleFileSelect(`/${githubRepo?.owner}/${githubRepo?.name}/${file}`)}
+                >
+                  <FiFile className="mr-2 h-3 w-3" />
+                  {file}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        
+        {/* Show implementation and test tabs for test mode */}
+        {agentMode === 'test' && (implementationCode || testCode) && (
+          <div className="mb-4">
+            <div className="flex border-b border-gray-700 mb-2">
+              <button
+                className={`px-4 py-2 text-sm ${selectedImplementationTab === 'implementation' 
+                  ? 'border-b-2 border-accent-500 text-accent-300' 
+                  : 'text-gray-400'}`}
+                onClick={() => setSelectedImplementationTab('implementation')}
+              >
+                Implementation
+              </button>
+              <button
+                className={`px-4 py-2 text-sm ${selectedImplementationTab === 'tests' 
+                  ? 'border-b-2 border-accent-500 text-accent-300' 
+                  : 'text-gray-400'}`}
+                onClick={() => setSelectedImplementationTab('tests')}
+              >
+                Tests
+              </button>
+            </div>
+            <div className="bg-dark-300 rounded-md p-4 font-mono text-sm max-h-[300px] overflow-y-auto whitespace-pre-wrap">
+              {selectedImplementationTab === 'implementation' 
+                ? implementationCode 
+                : testCode}
+            </div>
+          </div>
+        )}
+        
+        {agentResponse && (
+          <div className="mt-4">
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-sm font-medium text-gray-300">Agent Response</h4>
+              <div className="flex gap-2">
+                {selectedFile && agentMode === 'analyze' && !agentError && (
+                  <button
+                    onClick={applyAgentResponseAsEdit}
+                    className="px-3 py-1 text-xs bg-accent-500 text-white rounded-md hover:bg-accent-600"
+                  >
+                    Apply as Edit
+                  </button>
+                )}
+                {agentMode === 'create' && isCreatingFile && !agentError && (
+                  <div className="text-xs text-green-400 flex items-center">
+                    <FiCheck className="mr-1" /> File created
+                  </div>
+                )}
+                {agentResponse.includes("Error:") && (
+                  <div className="text-xs text-amber-400 flex items-center">
+                    <FiInfo className="mr-1" /> Response contains errors
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className={`rounded-md p-4 font-mono text-sm max-h-[300px] overflow-y-auto whitespace-pre-wrap ${
+              agentResponse.includes("Error:") ? 'bg-red-900/20 text-red-200' : 'bg-dark-300 text-gray-300'
+            }`}>
+              {agentResponse}
+            </div>
+          </div>
+        )}
+      </motion.div>
+    );
+  };
+
+  // Helper function to get placeholder text based on mode
+  const getPromptPlaceholder = () => {
+    switch (agentMode) {
+      case 'analyze':
+        return "What would you like me to analyze? (e.g., 'Identify performance issues in this code', 'Explain what this function does')";
+      case 'generate':
+        return "Describe the code you want me to generate (e.g., 'Create a utility function to format dates', 'Generate a React component for a dropdown menu')";
+      case 'edit':
+        return "Describe the changes you want to make to this file (e.g., 'Add error handling to this function', 'Refactor this component to use hooks')";
+      case 'create':
+        return "Describe the file you want to create (e.g., 'A utility class for handling API requests', 'A React component for a modal dialog')";
+      case 'solve':
+        return "Describe the problem you want me to solve autonomously (e.g., 'Implement authentication for this application', 'Add dark mode support')";
+      case 'autonomous':
+        return "Describe what you want me to autonomously modify (e.g., 'Update all API calls to use the new fetch wrapper', 'Add type checking to all functions')";
+      case 'search':
+        return "Describe the functionality you're looking for (e.g., 'API authentication', 'State management', 'Database queries')";
+      case 'test':
+        return "Describe the functionality you want me to implement with tests (e.g., 'A function to validate email addresses', 'A component that shows a paginated list')";
+      default:
+        return "";
+    }
+  };
+
+  // Helper function to get button text based on mode
+  const getButtonText = () => {
+    switch (agentMode) {
+      case 'analyze':
+        return "Analyze";
+      case 'generate':
+        return "Generate";
+      case 'edit':
+        return "Edit";
+      case 'create':
+        return "Create";
+      case 'solve':
+        return "Solve";
+      case 'autonomous':
+        return "Execute";
+      case 'search':
+        return "Search";
+      case 'test':
+        return "Generate";
+      default:
+        return "Run";
+    }
+  };
+
+  // Status banner to show API status
+  const renderStatusBanner = () => {
+    if (!aiService) {
+      return (
+        <div className="mb-4 p-2 bg-amber-900/30 border border-amber-800 rounded-md">
+          <div className="flex items-center">
+            <FiInfo className="text-amber-400 mr-2" />
+            <p className="text-amber-300 text-sm">
+              Please configure your API key in the settings to enable all agent capabilities.
+            </p>
+          </div>
+        </div>
+      );
+    }
+    
+    if (apiStatus.status === 'error') {
+      return (
+        <div className="mb-4 p-2 bg-red-900/30 border border-red-800 rounded-md">
+          <div className="flex items-center">
+            <FiAlertTriangle className="text-red-400 mr-2" />
+            <div className="flex-1">
+              <p className="text-red-300 text-sm">
+                API connectivity issue: {apiStatus.message || 'Unknown error'}
+              </p>
+              <div className="mt-1">
+                <button
+                  onClick={() => checkApiConnectivity()}
+                  className="px-3 py-1 text-xs bg-dark-100 text-gray-300 rounded-md hover:bg-dark-300 flex items-center"
+                >
+                  <FiRefreshCw className="mr-1 h-3 w-3" />
+                  Retry connection
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    
+    return null;
+  };
+
   return (
     <Layout>
       <div className="container mx-auto px-4 py-6 max-w-7xl">
@@ -570,6 +1179,9 @@ ${isFileAnalysis ? 'Focus on the specific file provided.' : 'Consider the entire
             {/* Right panel: File editor and agent interface */}
             <div className="lg:col-span-9">
               <div className="space-y-4">
+                {/* Status banner */}
+                {renderStatusBanner()}
+                
                 {/* File editor */}
                 <motion.div
                   initial={{ opacity: 0 }}
@@ -649,62 +1261,7 @@ ${isFileAnalysis ? 'Focus on the specific file provided.' : 'Consider the entire
                 </motion.div>
                 
                 {/* Agent interface */}
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ duration: 0.3, delay: 0.1 }}
-                  className="bg-dark-200 rounded-xl border border-gray-800 p-4"
-                >
-                  <h3 className="text-lg font-medium text-white mb-3">AI Agent Assistant</h3>
-                  
-                  <div className="mb-4">
-                    <div className="relative">
-                      <textarea
-                        value={agentPrompt}
-                        onChange={(e) => setAgentPrompt(e.target.value)}
-                        placeholder="What would you like me to help you with? (e.g., 'Analyze this code for bugs', 'Generate a new utility function', 'Refactor this file')"
-                        className="w-full min-h-[100px] bg-dark-100 border border-gray-700 rounded-md px-4 py-3 text-gray-100 focus:ring-2 focus:ring-accent-500 focus:border-transparent outline-none transition-all resize-y"
-                        disabled={isAgentProcessing}
-                      />
-                      <button
-                        onClick={handleAgentSubmit}
-                        disabled={!agentPrompt.trim() || isAgentProcessing}
-                        className="absolute right-3 bottom-3 px-4 py-1.5 bg-accent-500 text-white rounded-md hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-                      >
-                        {isAgentProcessing ? (
-                          <>
-                            <FiRefreshCw className="animate-spin mr-2 h-4 w-4" />
-                            Processing...
-                          </>
-                        ) : (
-                          <>
-                            <FiRotateCw className="mr-2 h-4 w-4" />
-                            Run
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                  
-                  {agentResponse && (
-                    <div className="mt-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="text-sm font-medium text-gray-300">Agent Response</h4>
-                        {selectedFile && (
-                          <button
-                            onClick={applyAgentResponseAsEdit}
-                            className="px-3 py-1 text-xs bg-accent-500 text-white rounded-md hover:bg-accent-600"
-                          >
-                            Apply as Edit
-                          </button>
-                        )}
-                      </div>
-                      <div className="bg-dark-300 rounded-md p-4 text-gray-300 font-mono text-sm max-h-[300px] overflow-y-auto whitespace-pre-wrap">
-                        {agentResponse}
-                      </div>
-                    </div>
-                  )}
-                </motion.div>
+                {renderAgentInterface()}
               </div>
             </div>
           </div>

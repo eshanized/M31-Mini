@@ -4,6 +4,8 @@ import { GitHubService, GitHubRepo, FileTree } from './github-service';
 
 export type OpenRouterModels = 
   'anthropic/claude-instant-1' | 
+  'anthropic/claude-3-opus' |
+  'anthropic/claude-3-sonnet' |
   'meta-llama/llama-2-13b-chat' | 
   'google/palm-2-chat-bison' | 
   'google/gemini-pro' | 
@@ -54,6 +56,8 @@ export class AIService {
   private githubService: GitHubService | null = null;
   private models: OpenRouterModels[] = [
     'anthropic/claude-instant-1',
+    'anthropic/claude-3-opus',
+    'anthropic/claude-3-sonnet',
     'meta-llama/llama-2-13b-chat',
     'google/palm-2-chat-bison',
     'google/gemini-pro',
@@ -62,6 +66,7 @@ export class AIService {
   ];
   private repoData: GitHubRepo | null = null;
   private fileTree: FileTree | null = null;
+  private lastApiCheck: { timestamp: number, status: 'ok' | 'error', message?: string } | null = null;
 
   constructor(apiKey: string) {
     this.apiKey = apiKey;
@@ -393,9 +398,11 @@ When providing solutions, ensure they align with the repository's structure and 
     // Generate completion
     const userPrompt = this.formatUserPrompt(prompt, repoContext);
     
-    return this.generateCompletion(this.getSystemPrompt(true), [
-      { role: 'user', content: userPrompt }
-    ], model);
+    return this.generateCompletionWithFallback(
+      this.getSystemPrompt(true), 
+      [{ role: 'user', content: userPrompt }],
+      model
+    );
   }
 
   // Identify important files for analysis
@@ -518,6 +525,8 @@ Please provide a Python solution that integrates well with this repository.`;
     model: OpenRouterModels
   ): Promise<string> {
     try {
+      console.log(`Generating completion with model: ${model}`);
+      
       const response = await fetch(`${this.baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
@@ -531,34 +540,118 @@ Please provide a Python solution that integrates well with this repository.`;
           messages: [
             { role: 'system', content: systemPrompt },
             ...messages
-          ]
+          ],
+          temperature: 0.7,
+          max_tokens: 4000
         })
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(`API request failed with status ${response.status}: ${
-          errorData.error?.message || 'Unknown error'
-        }`);
+        const errorText = await response.text();
+        let errorMessage = `API request failed with status ${response.status}`;
+        
+        try {
+          const errorData = JSON.parse(errorText);
+          errorMessage += `: ${errorData.error?.message || errorData.message || 'Unknown error'}`;
+        } catch (parseError) {
+          errorMessage += `: ${errorText || 'No error details available'}`;
+        }
+        
+        console.error('OpenRouter API error:', errorMessage);
+        throw new Error(errorMessage);
       }
 
       const data = await response.json();
       
-      // Check that data and choices exist before accessing
-      if (!data || !data.choices || !Array.isArray(data.choices) || data.choices.length === 0) {
-        throw new Error('Invalid response structure from API');
+      // Improved validation for API response
+      if (!data) {
+        console.error('Empty response from API');
+        throw new Error('Empty response received from API');
       }
       
-      // Check that the first choice has a message with content
-      if (!data.choices[0].message || typeof data.choices[0].message.content !== 'string') {
-        throw new Error('Response is missing content');
+      if (!data.choices || !Array.isArray(data.choices)) {
+        console.error('Invalid response format - missing choices array:', data);
+        throw new Error('Invalid response format: Missing choices array');
+      }
+      
+      if (data.choices.length === 0) {
+        console.error('Empty choices array in response:', data);
+        throw new Error('No choices returned in API response');
+      }
+      
+      const firstChoice = data.choices[0];
+      if (!firstChoice.message) {
+        console.error('Invalid choice format - missing message:', firstChoice);
+        throw new Error('Invalid choice format: Missing message');
+      }
+      
+      const content = firstChoice.message.content;
+      if (typeof content !== 'string') {
+        console.error('Invalid message format - content is not a string:', firstChoice.message);
+        throw new Error('Invalid message format: Content is not a string');
       }
 
-      return data.choices[0].message.content;
+      return content;
     } catch (error) {
       console.error('Error generating completion:', error);
-      throw error;
+      // Provide a more helpful error message to the user
+      if (error instanceof Error) {
+        if (error.message.includes('429')) {
+          throw new Error('API rate limit exceeded. Please try again in a few moments.');
+        } else if (error.message.includes('401') || error.message.includes('403')) {
+          throw new Error('Authentication error. Please check your API key.');
+        } else if (error.message.includes('502') || error.message.includes('503') || error.message.includes('504')) {
+          throw new Error('The AI service is currently unavailable. Please try again later.');
+        }
+        throw error;
+      }
+      throw new Error('Unknown error occurred while generating completion');
     }
+  }
+
+  // Add a fallback method that uses a simpler model when the main model fails
+  private async generateCompletionWithFallback(
+    systemPrompt: string,
+    messages: Message[],
+    primaryModel: OpenRouterModels,
+    maxRetries: number = 2
+  ): Promise<string> {
+    let lastError: Error | null = null;
+    
+    // Try the primary model first
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        return await this.generateCompletion(systemPrompt, messages, primaryModel);
+      } catch (error) {
+        console.warn(`Attempt ${attempt + 1} with ${primaryModel} failed:`, error);
+        if (error instanceof Error) {
+          lastError = error;
+          // Wait a moment before retrying
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+    }
+    
+    // If primary model fails after retries, fall back to more reliable models
+    const fallbackModels: OpenRouterModels[] = [
+      'google/gemini-pro',
+      'anthropic/claude-instant-1',
+      'mistralai/mistral-7b-instruct'
+    ];
+    
+    for (const fallbackModel of fallbackModels) {
+      if (fallbackModel === primaryModel) continue;
+      
+      try {
+        console.log(`Trying fallback model: ${fallbackModel}`);
+        return await this.generateCompletion(systemPrompt, messages, fallbackModel);
+      } catch (error) {
+        console.warn(`Fallback to ${fallbackModel} failed:`, error);
+      }
+    }
+    
+    // If all fallbacks fail, throw the last error
+    throw lastError || new Error('All models failed to generate completion');
   }
 
   private formatFileTreeForContext(node: FileTree, depth: number): string {
@@ -687,6 +780,767 @@ Please provide a Python solution that integrates well with this repository.`;
     } catch (error) {
       console.error('Error building repository context:', error);
       throw error;
+    }
+  }
+
+  public async generateCodeWithAgent(
+    prompt: string,
+    language?: string,
+    model: OpenRouterModels = 'anthropic/claude-3-opus'
+  ): Promise<string> {
+    if (!this.githubService) {
+      throw new Error('GitHub service is not initialized. This feature is only available in browser environments.');
+    }
+    
+    if (!this.repoData) {
+      throw new Error('No repository is currently loaded.');
+    }
+    
+    const fileTree = await this.getFileTree();
+    if (!fileTree) {
+      throw new Error('Failed to retrieve file tree.');
+    }
+    
+    const importantFiles = this.identifyImportantFiles(fileTree);
+    
+    // Get content of important files to provide context
+    const fileContents: Record<string, string> = {};
+    for (const filePath of importantFiles.slice(0, 5)) { // Limit to first 5 important files
+      try {
+        fileContents[filePath] = await this.getFileContent(filePath);
+      } catch (error) {
+        console.warn(`Failed to read file: ${filePath}`, error);
+      }
+    }
+    
+    // Build context
+    const repoContext = this.buildRepositoryContext(this.repoData, fileTree, fileContents);
+    
+    // Enhanced prompt for code generation
+    const generationPrompt = `
+Act as an agentic programming assistant. You are tasked with generating high-quality code based on the following requirements:
+
+USER REQUEST:
+${prompt}
+
+REPOSITORY CONTEXT:
+${repoContext}
+
+${language ? `The code should be written in ${language}.` : 'Use the appropriate language based on the repository context.'}
+
+Your generated code should:
+1. Follow best practices and patterns seen in the existing codebase
+2. Be complete and ready to use
+3. Include clear comments explaining complex logic
+4. Handle edge cases and errors appropriately
+5. Be optimized for performance and readability
+
+Format your response as clean, properly formatted code that can be directly integrated into the codebase.
+If you need to generate multiple files or file segments, clearly indicate each with file paths.
+`;
+    
+    // Use a more powerful model for code generation with fallback
+    return this.generateCompletionWithFallback(
+      this.getSystemPrompt(true),
+      [{ role: 'user', content: generationPrompt }],
+      model
+    );
+  }
+  
+  public async editFile(
+    filePath: string,
+    editPrompt: string,
+    model: OpenRouterModels = 'anthropic/claude-3-opus'
+  ): Promise<string> {
+    if (!this.githubService || !this.repoData) {
+      throw new Error('Repository not loaded or service not initialized');
+    }
+    
+    try {
+      // Get the current file content
+      const currentContent = await this.getFileContent(filePath);
+      
+      // Create a prompt that includes the current file and instructions for editing
+      const editFilePrompt = `
+Act as an expert code editor. You need to modify the following file according to these instructions:
+
+FILE PATH: ${filePath}
+EDIT REQUEST: ${editPrompt}
+
+CURRENT FILE CONTENT:
+\`\`\`
+${currentContent}
+\`\`\`
+
+Please provide the COMPLETE updated file content that incorporates the requested changes.
+Maintain the same style, formatting, and patterns found in the original code.
+Do not omit any parts of the file - return the full content with your edits incorporated.
+`;
+      
+      // Generate the edited content with fallback
+      const editedContent = await this.generateCompletionWithFallback(
+        this.getSystemPrompt(false),
+        [{ role: 'user', content: editFilePrompt }],
+        model
+      );
+      
+      return editedContent;
+    } catch (error) {
+      console.error('Error editing file:', error);
+      throw new Error(`Failed to edit file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+  
+  public async createFile(
+    directoryPath: string,
+    fileName: string,
+    fileDescription: string,
+    model: OpenRouterModels = 'anthropic/claude-3-opus'
+  ): Promise<string> {
+    if (!this.githubService || !this.repoData) {
+      throw new Error('Repository not loaded or service not initialized');
+    }
+    
+    // Get file tree for context
+    const fileTree = await this.getFileTree();
+    if (!fileTree) {
+      throw new Error('Failed to retrieve file tree.');
+    }
+    
+    // Identify some similar files to provide context
+    const similarFiles: string[] = [];
+    
+    // Helper function to find files with similar extension
+    const findSimilarFiles = (node: FileTree, path: string = '') => {
+      const extension = fileName.includes('.') ? fileName.split('.').pop()?.toLowerCase() : '';
+      
+      if (node.type === 'file' && extension) {
+        const nodeExtension = node.name.includes('.') ? node.name.split('.').pop()?.toLowerCase() : '';
+        if (nodeExtension === extension) {
+          similarFiles.push(path ? `${path}/${node.name}` : node.name);
+        }
+      } else if (node.children) {
+        const nextPath = path ? `${path}/${node.name}` : node.name;
+        for (const child of node.children) {
+          findSimilarFiles(child, nextPath);
+        }
+      }
+    };
+    
+    findSimilarFiles(fileTree);
+    
+    // Get content of similar files for reference
+    const similarFileContents: Record<string, string> = {};
+    for (const filePath of similarFiles.slice(0, 3)) { // Limit to 3 similar files
+      try {
+        similarFileContents[filePath] = await this.getFileContent(filePath);
+      } catch (error) {
+        console.warn(`Failed to read similar file: ${filePath}`, error);
+      }
+    }
+    
+    // Create a prompt for file generation
+    const createFilePrompt = `
+Act as an expert code generator. You need to create a new file with the following specifications:
+
+FILE PATH: ${directoryPath}/${fileName}
+FILE DESCRIPTION: ${fileDescription}
+
+REPOSITORY CONTEXT:
+Repository: ${this.repoData.owner}/${this.repoData.name}
+${Object.keys(similarFileContents).length > 0 ? 'Here are some similar files for reference:' : 'No similar files found for reference.'}
+
+${Object.entries(similarFileContents).map(([path, content]) => `
+FILE: ${path}
+\`\`\`
+${content}
+\`\`\``).join('\n')}
+
+Please create a complete, well-structured file that:
+1. Follows the coding style and patterns of the similar files
+2. Implements the functionality described in the file description
+3. Includes appropriate imports, error handling, and documentation
+4. Is ready to be integrated into the existing codebase
+
+Return ONLY the file content without additional explanations.
+`;
+    
+    // Generate the new file content with fallback
+    const fileContent = await this.generateCompletionWithFallback(
+      this.getSystemPrompt(false),
+      [{ role: 'user', content: createFilePrompt }],
+      model
+    );
+    
+    return fileContent;
+  }
+
+  // New method for autonomous problem-solving
+  public async solveCodeProblem(
+    problemDescription: string,
+    model: OpenRouterModels = 'anthropic/claude-3-opus'
+  ): Promise<{solution: string, explanation: string, files: {path: string, content: string}[]}> {
+    if (!this.githubService || !this.repoData) {
+      throw new Error('Repository not loaded or service not initialized');
+    }
+    
+    const fileTree = await this.getFileTree();
+    if (!fileTree) {
+      throw new Error('Failed to retrieve file tree.');
+    }
+    
+    // Build comprehensive repository context
+    const repoContext = await this.buildFullRepoContext();
+    
+    // Create a multi-stage problem-solving approach
+    const planningPrompt = `
+You are an autonomous coding agent with the ability to understand, plan, and implement solutions to complex coding problems.
+
+PROBLEM DESCRIPTION:
+${problemDescription}
+
+REPOSITORY CONTEXT:
+${repoContext}
+
+Your task is to develop a comprehensive plan to solve this problem. Please proceed in the following stages:
+
+STAGE 1: PROBLEM ANALYSIS
+- Understand what the problem is asking
+- Identify relevant parts of the codebase that need to be modified/extended
+- List any constraints or requirements
+
+STAGE 2: SOLUTION PLANNING
+- Break down the solution into logical steps
+- Identify which files need to be created or modified
+- Outline the changes needed for each file
+- Consider edge cases and potential issues
+
+Please organize your response as follows:
+1. Problem Analysis: (your detailed analysis)
+2. Files to Modify: (list of files)
+3. Files to Create: (list of files with purpose)
+4. Implementation Plan: (step-by-step approach)
+`;
+    
+    // Get the planning response with fallback
+    const planningResponse = await this.generateCompletionWithFallback(
+      this.getSystemPrompt(true),
+      [{ role: 'user', content: planningPrompt }],
+      model
+    );
+    
+    // Implementation phase - create a detailed implementation based on the plan
+    const implementationPrompt = `
+You previously analyzed a coding problem and created a plan. Now, implement your solution based on the plan.
+
+PROBLEM DESCRIPTION:
+${problemDescription}
+
+YOUR PLAN:
+${planningResponse}
+
+REPOSITORY CONTEXT:
+${repoContext.substring(0, 3000)}... [truncated for brevity]
+
+Now, please implement your solution by providing the complete code for each file that needs to be modified or created.
+For each file, provide the full path and complete content of the file after your changes.
+
+Format your response as follows:
+
+SOLUTION EXPLANATION:
+(Provide a concise explanation of your implemented solution)
+
+IMPLEMENTATION:
+[FILE: path/to/file1]
+\`\`\`
+(Full file content with changes)
+\`\`\`
+
+[FILE: path/to/file2]
+\`\`\`
+(Full file content with changes)
+\`\`\`
+
+(And so on for each file)
+`;
+    
+    // Get the implementation response with fallback
+    const implementationResponse = await this.generateCompletionWithFallback(
+      this.getSystemPrompt(true),
+      [{ role: 'user', content: implementationPrompt }],
+      model
+    );
+    
+    // Parse the implementation to extract files and explanation
+    const result = this.parseImplementationResponse(implementationResponse);
+    
+    return result;
+  }
+  
+  // Parse the implementation response to extract files and explanation
+  private parseImplementationResponse(
+    response: string
+  ): {solution: string, explanation: string, files: {path: string, content: string}[]} {
+    const files: {path: string, content: string}[] = [];
+    let explanation = '';
+    
+    // Extract explanation
+    const explanationMatch = response.match(/SOLUTION EXPLANATION:\s*\n([\s\S]*?)(?=IMPLEMENTATION:|$)/);
+    if (explanationMatch && explanationMatch[1]) {
+      explanation = explanationMatch[1].trim();
+    }
+    
+    // Extract files
+    const fileRegex = /\[FILE: (.+?)\]\s*```(?:\w*\n)?([\s\S]*?)```/g;
+    let match;
+    
+    while ((match = fileRegex.exec(response)) !== null) {
+      const path = match[1].trim();
+      const content = match[2].trim();
+      
+      files.push({
+        path,
+        content
+      });
+    }
+    
+    return {
+      solution: response,
+      explanation,
+      files
+    };
+  }
+  
+  // Autonomous multi-step search and modify
+  public async autonomousSearchAndModify(
+    task: string,
+    model: OpenRouterModels = 'anthropic/claude-3-opus'
+  ): Promise<{explanation: string, modifications: {path: string, content: string}[]}> {
+    if (!this.githubService || !this.repoData) {
+      throw new Error('Repository not loaded or service not initialized');
+    }
+    
+    // Step 1: Search for relevant files
+    const fileTree = await this.getFileTree();
+    if (!fileTree) {
+      throw new Error('Failed to retrieve file tree.');
+    }
+
+    const searchPrompt = `
+You are an autonomous code search agent. Your task is to find relevant files for solving this problem:
+
+TASK:
+${task}
+
+REPOSITORY STRUCTURE:
+${this.formatFileTreeForContext(fileTree, 0)}
+
+Please identify the most relevant files that would need to be examined to solve this task.
+Return your answer as a JSON array of file paths, ordered by relevance:
+["path/to/file1", "path/to/file2", ...]
+`;
+    
+    const searchResponse = await this.generateCompletionWithFallback(
+      this.getSystemPrompt(true),
+      [{ role: 'user', content: searchPrompt }],
+      model
+    );
+    
+    // Extract file paths from the JSON response
+    let relevantFilePaths: string[] = [];
+    try {
+      // Find a JSON array in the response
+      const jsonMatch = searchResponse.match(/\[\s*".*"\s*\]/);
+      if (jsonMatch) {
+        relevantFilePaths = JSON.parse(jsonMatch[0]);
+      } else {
+        // Fallback to regex extraction if JSON parsing fails
+        const filePathRegex = /"([^"]+)"/g;
+        let match;
+        while ((match = filePathRegex.exec(searchResponse)) !== null) {
+          relevantFilePaths.push(match[1]);
+        }
+      }
+    } catch (error) {
+      console.error('Error parsing search response:', error);
+      relevantFilePaths = [];
+    }
+    
+    // Limit to maximum 5 files to avoid token limits
+    relevantFilePaths = relevantFilePaths.slice(0, 5);
+    
+    // Step 2: Analyze relevant files
+    const fileContents: Record<string, string> = {};
+    for (const path of relevantFilePaths) {
+      try {
+        fileContents[path] = await this.getFileContent(path);
+      } catch (error) {
+        console.warn(`Failed to read file: ${path}`, error);
+      }
+    }
+    
+    // Step 3: Plan modifications
+    const planPrompt = `
+You are an autonomous code modification agent. You need to implement the following task:
+
+TASK:
+${task}
+
+RELEVANT FILES:
+${Object.entries(fileContents).map(([path, content]) => `
+[FILE: ${path}]
+\`\`\`
+${content}
+\`\`\``).join('\n')}
+
+Based on these files, please provide a comprehensive plan for implementing the requested task.
+Your plan should include:
+1. Overall approach
+2. Specific changes needed for each file
+3. Any new files that need to be created
+`;
+    
+    const planResponse = await this.generateCompletionWithFallback(
+      this.getSystemPrompt(true),
+      [{ role: 'user', content: planPrompt }],
+      model
+    );
+    
+    // Step 4: Implement changes
+    const implementPrompt = `
+You are an autonomous code implementation agent. You need to implement the following task according to your plan:
+
+TASK:
+${task}
+
+YOUR PLAN:
+${planResponse}
+
+RELEVANT FILES:
+${Object.entries(fileContents).map(([path, content]) => `
+[FILE: ${path}]
+\`\`\`
+${content}
+\`\`\``).join('\n')}
+
+Please provide the full implementation of your changes. For each file you modify or create, provide:
+1. The full file path
+2. The complete content of the file after your changes
+
+Format your response as follows:
+
+EXPLANATION:
+(Brief explanation of the changes made)
+
+MODIFIED FILES:
+[FILE: path/to/file1]
+\`\`\`
+(Full file content with changes)
+\`\`\`
+
+[FILE: path/to/file2]
+\`\`\`
+(Full file content with changes)
+\`\`\`
+
+[FILE: path/to/new_file]
+\`\`\`
+(Full file content)
+\`\`\`
+`;
+    
+    const implementResponse = await this.generateCompletionWithFallback(
+      this.getSystemPrompt(true),
+      [{ role: 'user', content: implementPrompt }],
+      model
+    );
+    
+    // Parse the implementation to extract files and explanation
+    return this.parseAutonomousResponse(implementResponse);
+  }
+  
+  // Parse the autonomous response to extract files and explanation
+  private parseAutonomousResponse(
+    response: string
+  ): {explanation: string, modifications: {path: string, content: string}[]} {
+    const modifications: {path: string, content: string}[] = [];
+    let explanation = '';
+    
+    // Extract explanation
+    const explanationMatch = response.match(/EXPLANATION:\s*\n([\s\S]*?)(?=MODIFIED FILES:|$)/);
+    if (explanationMatch && explanationMatch[1]) {
+      explanation = explanationMatch[1].trim();
+    }
+    
+    // Extract files
+    const fileRegex = /\[FILE: (.+?)\]\s*```(?:\w*\n)?([\s\S]*?)```/g;
+    let match;
+    
+    while ((match = fileRegex.exec(response)) !== null) {
+      const path = match[1].trim();
+      const content = match[2].trim();
+      
+      modifications.push({
+        path,
+        content
+      });
+    }
+    
+    return {
+      explanation,
+      modifications
+    };
+  }
+
+  // File search based on functionality description
+  public async searchFilesByFunctionality(
+    description: string,
+    model: OpenRouterModels = 'anthropic/claude-3-opus'
+  ): Promise<string[]> {
+    if (!this.githubService || !this.repoData) {
+      throw new Error('Repository not loaded or service not initialized');
+    }
+    
+    const fileTree = await this.getFileTree();
+    if (!fileTree) {
+      throw new Error('Failed to retrieve file tree.');
+    }
+    
+    const searchPrompt = `
+You are a code search agent with semantic understanding of code. Your task is to find files that likely contain the functionality described below:
+
+FUNCTIONALITY DESCRIPTION:
+${description}
+
+REPOSITORY STRUCTURE:
+${this.formatFileTreeForContext(fileTree, 0)}
+
+Based on the file names and structure, identify the most relevant files that would likely contain or be related to the described functionality.
+Return your answer as a JSON array of file paths, ordered by likely relevance:
+["path/to/file1", "path/to/file2", ...]
+
+Explain your reasoning for each file selection briefly.
+`;
+    
+    const searchResponse = await this.generateCompletionWithFallback(
+      this.getSystemPrompt(true),
+      [{ role: 'user', content: searchPrompt }],
+      model
+    );
+    
+    // Extract file paths from the JSON response
+    let relevantFilePaths: string[] = [];
+    try {
+      // Find a JSON array in the response
+      const jsonMatch = searchResponse.match(/\[\s*".*"\s*\]/);
+      if (jsonMatch) {
+        relevantFilePaths = JSON.parse(jsonMatch[0]);
+      } else {
+        // Fallback to regex extraction if JSON parsing fails
+        const filePathRegex = /"([^"]+)"/g;
+        let match;
+        while ((match = filePathRegex.exec(searchResponse)) !== null) {
+          relevantFilePaths.push(match[1]);
+        }
+      }
+    } catch (error) {
+      console.error('Error parsing search response:', error);
+      relevantFilePaths = [];
+    }
+    
+    return relevantFilePaths;
+  }
+  
+  // Code generation with tests
+  public async generateCodeWithTests(
+    specDescription: string,
+    language?: string,
+    model: OpenRouterModels = 'anthropic/claude-3-opus'
+  ): Promise<{implementation: string, tests: string}> {
+    if (!this.githubService) {
+      throw new Error('GitHub service is not initialized. This feature is only available in browser environments.');
+    }
+    
+    if (!this.repoData) {
+      throw new Error('No repository is currently loaded.');
+    }
+    
+    // Build repository context
+    const repoContext = await this.buildFullRepoContext(5000); // Limit context size
+    
+    // Enhanced prompt for code generation with tests
+    const generationPrompt = `
+Act as an expert software engineer with test-driven development expertise. You need to implement code according to this specification:
+
+SPECIFICATION:
+${specDescription}
+
+REPOSITORY CONTEXT:
+${repoContext}
+
+${language ? `The code should be written in ${language}.` : 'Use the appropriate language based on the repository context.'}
+
+Your task is to:
+1. Create a high-quality implementation that meets the specification
+2. Write comprehensive tests for this implementation
+
+Please provide:
+1. The implementation code
+2. Test code that verifies the implementation works correctly
+
+Format your response as follows:
+
+IMPLEMENTATION:
+\`\`\`
+(Your implementation code here)
+\`\`\`
+
+TESTS:
+\`\`\`
+(Your test code here)
+\`\`\`
+`;
+    
+    const response = await this.generateCompletionWithFallback(
+      this.getSystemPrompt(true),
+      [{ role: 'user', content: generationPrompt }],
+      model
+    );
+    
+    // Parse the response to extract implementation and tests
+    const implementationMatch = response.match(/IMPLEMENTATION:\s*```(?:\w*\n)?([\s\S]*?)```/);
+    const testsMatch = response.match(/TESTS:\s*```(?:\w*\n)?([\s\S]*?)```/);
+    
+    return {
+      implementation: implementationMatch ? implementationMatch[1].trim() : '',
+      tests: testsMatch ? testsMatch[1].trim() : ''
+    };
+  }
+
+  // Add a helper method to check API connectivity
+  public async checkApiConnectivity(): Promise<{ status: 'ok' | 'error', message?: string }> {
+    // Return cached result if checked within the last minute
+    const now = Date.now();
+    if (this.lastApiCheck && (now - this.lastApiCheck.timestamp) < 60000) {
+      return { 
+        status: this.lastApiCheck.status, 
+        message: this.lastApiCheck.message 
+      };
+    }
+    
+    try {
+      const response = await fetch(`${this.baseUrl}/models`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${this.apiKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://m31-mini.vercel.app/',
+          'X-Title': 'M31 Mini'
+        }
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        let errorMessage = `API connection check failed with status ${response.status}`;
+        
+        try {
+          const errorData = JSON.parse(errorText);
+          errorMessage = errorData.error?.message || errorData.message || errorMessage;
+        } catch (parseError) {
+          // Use the text response if parsing fails
+        }
+        
+        this.lastApiCheck = {
+          timestamp: now,
+          status: 'error',
+          message: errorMessage
+        };
+        
+        return { status: 'error', message: errorMessage };
+      }
+      
+      const data = await response.json();
+      
+      // Check if the data includes our required models
+      const availableModels = data.data.map((model: any) => model.id);
+      const ourRequiredModels = this.models;
+      
+      const missingModels = ourRequiredModels.filter(
+        model => !availableModels.includes(model)
+      );
+      
+      if (missingModels.length > 0) {
+        const missingModelsMessage = `Some required models are unavailable: ${missingModels.join(', ')}`;
+        console.warn(missingModelsMessage);
+        
+        // Even if some models are missing, if we have the fallbacks, consider the API okay
+        const fallbackModels = ['google/gemini-pro', 'anthropic/claude-instant-1', 'mistralai/mistral-7b-instruct'];
+        const hasFallbacks = fallbackModels.some(model => availableModels.includes(model));
+        
+        if (!hasFallbacks) {
+          this.lastApiCheck = {
+            timestamp: now,
+            status: 'error',
+            message: 'Critical models are unavailable. Some features may not work.'
+          };
+          
+          return { 
+            status: 'error', 
+            message: 'Critical models are unavailable. Some features may not work.' 
+          };
+        }
+      }
+      
+      this.lastApiCheck = {
+        timestamp: now,
+        status: 'ok'
+      };
+      
+      return { status: 'ok' };
+    } catch (error) {
+      const errorMessage = error instanceof Error 
+        ? error.message 
+        : 'Unknown error checking API connectivity';
+      
+      this.lastApiCheck = {
+        timestamp: now,
+        status: 'error',
+        message: errorMessage
+      };
+      
+      return { status: 'error', message: errorMessage };
+    }
+  }
+
+  // Helper method to get the best available model for a specific task
+  public async getBestAvailableModel(
+    preferredModel: OpenRouterModels,
+    taskType: 'code' | 'analysis' | 'edit' | 'general' = 'general'
+  ): Promise<OpenRouterModels> {
+    try {
+      const apiStatus = await this.checkApiConnectivity();
+      
+      if (apiStatus.status === 'ok') {
+        // Try to use the preferred model
+        return preferredModel;
+      }
+      
+      // If API status check failed, use fallbacks based on task type
+      switch (taskType) {
+        case 'code':
+          return 'google/gemini-pro';
+        case 'analysis':
+          return 'mistralai/mixtral-8x7b-instruct';
+        case 'edit':
+          return 'anthropic/claude-instant-1';
+        case 'general':
+        default:
+          return 'mistralai/mistral-7b-instruct';
+      }
+    } catch (error) {
+      console.error('Error getting best available model:', error);
+      // Default fallback
+      return 'google/gemini-pro';
     }
   }
 } 
