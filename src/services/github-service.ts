@@ -170,13 +170,35 @@ export class GitHubService {
       throw new Error('GitHub service could not be initialized');
     }
 
+    console.log(`GitHub service getFileContent: owner=${owner}, repo=${repoName}, path=${filePath}`);
+    
+    // Normalize path to ensure it doesn't have leading slashes
+    if (filePath.startsWith('/')) {
+      filePath = filePath.slice(1);
+    }
+    
+    // Construct the full path
     const fullPath = `/${owner}/${repoName}/${filePath}`;
+    console.log("Full file path:", fullPath);
     
     try {
+      // Check if file exists first
+      try {
+        const stats = await fs.promises.stat(fullPath);
+        if (!stats.isFile()) {
+          throw new Error(`Path is not a file: ${fullPath}`);
+        }
+      } catch (e) {
+        console.error("File stat error:", e);
+        throw new Error(`File not found: ${fullPath}`);
+      }
+      
+      // Read file content
       const content = await fs.promises.readFile(fullPath, { encoding: 'utf8' });
+      console.log(`File content read successfully, size: ${content.length} characters`);
       return content.toString();
     } catch (error) {
-      console.error('Error reading file:', error);
+      console.error('Error reading file content:', error);
       throw error;
     }
   }

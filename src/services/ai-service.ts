@@ -311,7 +311,25 @@ def find_most_frequent(items: List[T]) -> T:
       throw new Error('Repository not loaded');
     }
     
-    return await this.githubService.getFileContent(this.repoData.owner, this.repoData.name, filePath);
+    console.log("AI Service getFileContent called with path:", filePath);
+    
+    // Make sure filePath doesn't start with a slash
+    if (filePath.startsWith('/')) {
+      filePath = filePath.substring(1);
+    }
+    
+    try {
+      const content = await this.githubService.getFileContent(
+        this.repoData.owner, 
+        this.repoData.name, 
+        filePath
+      );
+      console.log("File content successfully retrieved");
+      return content;
+    } catch (error) {
+      console.error("Error in AI Service getFileContent:", error);
+      throw error;
+    }
   }
 
   public async analyzeRepositoryCode(

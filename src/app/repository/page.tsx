@@ -88,13 +88,29 @@ export default function RepositoryPage() {
     }
   };
   
+  // Add this useEffect to check initialization status
+  useEffect(() => {
+    console.log("Repository page status:", {
+      apiKeyPresent: !!useAppStore.getState().apiKey,
+      aiServicePresent: !!aiService,
+      githubRepoPresent: !!githubRepo,
+      fileTreePresent: !!fileTree,
+    });
+  }, [aiService, githubRepo, fileTree]);
+
   // Fetch file tree when repository is loaded
   useEffect(() => {
     const fetchFileTree = async () => {
-      if (!aiService || !githubRepo) return;
+      if (!aiService || !githubRepo) {
+        console.log("Cannot fetch file tree: AI service or GitHub repo not available");
+        return;
+      }
+      
+      console.log("Fetching file tree for:", githubRepo.owner + "/" + githubRepo.name);
       
       try {
         const tree = await aiService.getFileTree();
+        console.log("File tree fetched successfully");
         setFileTree(tree);
       } catch (error) {
         console.error('Error fetching file tree:', error);
@@ -106,8 +122,12 @@ export default function RepositoryPage() {
   
   // Load file content when a file is selected
   const handleFileSelect = async (filePath: string) => {
-    if (!aiService || !githubRepo) return;
+    if (!aiService || !githubRepo) {
+      console.error("Cannot select file: AI service or GitHub repo not available");
+      return;
+    }
     
+    console.log("Selecting file:", filePath);
     setSelectedFile(filePath);
     setIsLoadingFile(true);
     setIsEditingFile(false);
@@ -115,7 +135,11 @@ export default function RepositoryPage() {
     try {
       // Extract relative path from full path
       const relativePath = filePath.replace(`/${githubRepo.owner}/${githubRepo.name}/`, '');
+      console.log("Fetching content for relative path:", relativePath);
+      
       const content = await aiService.getFileContent(relativePath);
+      console.log("Content received, length:", content.length);
+      
       setFileContent(content);
       setEditedContent(content);
     } catch (error) {
@@ -154,20 +178,24 @@ export default function RepositoryPage() {
   }, [searchQuery, fileTree]);
   
   // Render file tree recursively
-  const renderFileTree = (node: any, depth: number = 0) => {
+  const renderFileTree = (node: any, depth: number = 0, parentPath: string = '') => {
     if (!node) return null;
     
     const paddingLeft = `${depth * 16}px`;
+    const nodePath = parentPath ? `${parentPath}/${node.name}` : node.path;
     
     if (node.type === 'file') {
       return (
         <div 
-          key={node.path}
+          key={nodePath}
           className={`py-1 px-2 flex items-center cursor-pointer hover:bg-dark-100 rounded ${
-            selectedFile === node.path ? 'bg-accent-500/20 text-accent-300' : 'text-gray-300'
+            selectedFile === nodePath ? 'bg-accent-500/20 text-accent-300' : 'text-gray-300'
           }`}
           style={{ paddingLeft }}
-          onClick={() => handleFileSelect(node.path)}
+          onClick={() => {
+            console.log("File clicked:", nodePath);
+            handleFileSelect(nodePath);
+          }}
         >
           <FiFile className="mr-2 flex-shrink-0" />
           <span className="truncate text-sm">{node.name}</span>
@@ -177,16 +205,16 @@ export default function RepositoryPage() {
     
     if (node.type === 'dir' && node.children) {
       // Initialize directory state if it doesn't exist
-      const isOpen = openDirs[node.path] === undefined 
+      const isOpen = openDirs[nodePath] === undefined 
         ? depth === 0  // Root directories are open by default
-        : openDirs[node.path];
+        : openDirs[nodePath];
       
       return (
-        <div key={node.path}>
+        <div key={nodePath}>
           <div 
             className="py-1 px-2 flex items-center cursor-pointer hover:bg-dark-100 rounded text-gray-200"
             style={{ paddingLeft }}
-            onClick={() => toggleDirOpen(node.path)}
+            onClick={() => toggleDirOpen(nodePath)}
           >
             <FiFolder className="mr-2 text-accent-400 flex-shrink-0" />
             <span className="font-medium text-sm">{node.name}</span>
@@ -194,7 +222,7 @@ export default function RepositoryPage() {
           
           {isOpen && (
             <div>
-              {node.children.map((child: any) => renderFileTree(child, depth + 1))}
+              {node.children.map((child: any) => renderFileTree(child, depth + 1, nodePath))}
             </div>
           )}
         </div>
@@ -210,13 +238,15 @@ export default function RepositoryPage() {
       const initialOpenState: Record<string, boolean> = {};
       
       // Helper function to recursively set initial open state
-      const processNode = (node: any, depth: number = 0) => {
+      const processNode = (node: any, depth: number = 0, parentPath: string = '') => {
+        const nodePath = parentPath ? `${parentPath}/${node.name}` : node.path;
+        
         if (node.type === 'dir' && node.children) {
           // Only root directories are open by default
-          initialOpenState[node.path] = depth === 0;
+          initialOpenState[nodePath] = depth === 0;
           
           // Process children
-          node.children.forEach((child: any) => processNode(child, depth + 1));
+          node.children.forEach((child: any) => processNode(child, depth + 1, nodePath));
         }
       };
       
