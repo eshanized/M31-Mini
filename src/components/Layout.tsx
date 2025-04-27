@@ -6,7 +6,7 @@ import { FiCode, FiGithub, FiExternalLink, FiHeart } from 'react-icons/fi';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { FiCpu, FiClock, FiSave, FiSearch, FiBarChart2, FiBookOpen } from 'react-icons/fi';
-import APIKeyInput from '../APIKeyInput';
+import APIKeyInput from './APIKeyInput';
 import ModelSelector from './ModelSelector';
 
 interface LayoutProps {
