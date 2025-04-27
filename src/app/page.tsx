@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import Layout from '../components/Layout';
 import HeroSection from '../components/HeroSection';
 import { motion } from 'framer-motion';
-import { FiArrowRight, FiCode, FiCpu, FiGithub, FiZap } from 'react-icons/fi';
+import { FiArrowRight, FiCode, FiCpu, FiGithub, FiZap, FiGitBranch } from 'react-icons/fi';
 import Link from 'next/link';
 import { useAppStore } from '../lib/store';
 
@@ -83,9 +83,16 @@ export default function Home() {
               <FiGithub className="h-6 w-6 text-primary-400" />
             </div>
             <h3 className="text-xl font-bold text-white mb-2">GitHub Integration</h3>
-            <p className="text-gray-400">
+            <p className="text-gray-400 mb-4">
               Clone and analyze GitHub repositories to generate context-aware code that fits your project.
             </p>
+            <Link 
+              href="/repository" 
+              className="text-primary-400 hover:text-primary-300 flex items-center text-sm font-medium"
+            >
+              <span>Explore Repositories</span>
+              <FiArrowRight className="ml-1 h-3 w-3" />
+            </Link>
           </motion.div>
           
           <motion.div
@@ -119,6 +126,13 @@ export default function Home() {
               >
                 <span>Go to Generator</span>
                 <FiArrowRight className="h-4 w-4" />
+              </Link>
+              <Link 
+                href="/repository" 
+                className="inline-flex items-center space-x-2 px-6 py-3 bg-primary-600/80 hover:bg-primary-700 text-white font-medium rounded-lg transition-all"
+              >
+                <FiGitBranch className="h-4 w-4 mr-2" />
+                <span>Explore Repositories</span>
               </Link>
               <Link 
                 href="/examples" 

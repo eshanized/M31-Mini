@@ -28,7 +28,7 @@ module.exports = {
         },
       },
       fontFamily: {
-        sans: ['JetBrains Mono', 'monospace'],
+        sans: ['Fira Sans', 'sans-serif'],
         mono: ['JetBrains Mono', 'monospace'],
       },
       boxShadow: {

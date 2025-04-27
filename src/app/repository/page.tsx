@@ -3,10 +3,12 @@
 import React, { useEffect, useState } from 'react';
 import Layout from '../../components/Layout';
 import { motion } from 'framer-motion';
-import { FiGitBranch, FiFolder, FiFile, FiSearch, FiDownload, FiRefreshCw, FiCode, FiExternalLink } from 'react-icons/fi';
+import { FiGitBranch, FiFolder, FiFile, FiSearch, FiCopy, FiRefreshCw, FiCode, FiExternalLink } from 'react-icons/fi';
 import { useAppStore } from '../../lib/store';
 import GitHubRepoInput from '../../components/GitHubRepoInput';
 import Link from 'next/link';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 
 export default function RepositoryPage() {
   const { 
@@ -26,6 +28,7 @@ export default function RepositoryPage() {
   const [isLoadingFile, setIsLoadingFile] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredFiles, setFilteredFiles] = useState<string[]>([]);
+  const [copiedToClipboard, setCopiedToClipboard] = useState(false);
   
   // Initialize service
   useEffect(() => {
@@ -160,6 +163,54 @@ export default function RepositoryPage() {
     return Object.entries(githubRepo.fileTypes)
       .sort(([, a], [, b]) => (b as number) - (a as number))
       .slice(0, 5);
+  };
+
+  // Determine language for syntax highlighting
+  const getLanguage = (filename: string): string => {
+    if (!filename) return 'text';
+    
+    const extension = filename.split('.').pop()?.toLowerCase() || '';
+    const extensionMap: Record<string, string> = {
+      'js': 'javascript',
+      'jsx': 'jsx',
+      'ts': 'typescript',
+      'tsx': 'tsx',
+      'py': 'python',
+      'html': 'html',
+      'css': 'css',
+      'scss': 'scss',
+      'json': 'json',
+      'md': 'markdown',
+      'yml': 'yaml',
+      'yaml': 'yaml',
+      'sh': 'bash',
+      'bash': 'bash',
+      'java': 'java',
+      'c': 'c',
+      'cpp': 'cpp',
+      'cs': 'csharp',
+      'go': 'go',
+      'rs': 'rust',
+      'rb': 'ruby',
+      'php': 'php',
+      'swift': 'swift',
+      'kt': 'kotlin',
+      'vue': 'markup',
+      'sql': 'sql',
+      'graphql': 'graphql',
+      'xml': 'xml',
+    };
+    
+    return extensionMap[extension] || 'text';
+  };
+
+  // Copy file content to clipboard
+  const handleCopyContent = () => {
+    if (fileContent) {
+      navigator.clipboard.writeText(fileContent);
+      setCopiedToClipboard(true);
+      setTimeout(() => setCopiedToClipboard(false), 2000);
+    }
   };
   
   return (
@@ -328,28 +379,42 @@ export default function RepositoryPage() {
                         </span>
                       </div>
                       <button
-                        onClick={() => {
-                          if (fileContent) {
-                            navigator.clipboard.writeText(fileContent);
-                          }
-                        }}
-                        className="p-1 text-gray-400 hover:text-white transition-colors"
+                        onClick={handleCopyContent}
+                        className="p-1 text-gray-400 hover:text-white transition-colors relative"
                         title="Copy content"
                       >
-                        <FiDownload className="h-4 w-4" />
+                        {copiedToClipboard ? (
+                          <span className="absolute -top-8 -left-8 bg-dark-200 text-primary-400 text-xs py-1 px-2 rounded whitespace-nowrap">
+                            Copied!
+                          </span>
+                        ) : null}
+                        <FiCopy className="h-4 w-4" />
                       </button>
                     </div>
                     
-                    <div className="flex-grow overflow-auto p-4 bg-dark-300 relative">
+                    <div className="flex-grow overflow-auto bg-dark-300 relative">
                       {isLoadingFile ? (
                         <div className="flex justify-center items-center h-full text-gray-500">
                           <FiRefreshCw className="animate-spin mr-2" />
                           Loading file content...
                         </div>
                       ) : (
-                        <pre className="font-mono text-sm text-gray-300 whitespace-pre-wrap">
-                          {fileContent}
-                        </pre>
+                        <SyntaxHighlighter
+                          language={getLanguage(selectedFile.split('/').pop() || '')}
+                          style={vscDarkPlus}
+                          customStyle={{
+                            margin: 0,
+                            padding: '1rem',
+                            backgroundColor: 'transparent',
+                            fontSize: '0.875rem',
+                            lineHeight: 1.7,
+                            minHeight: '100%',
+                          }}
+                          lineNumberStyle={{ opacity: 0.4 }}
+                          showLineNumbers
+                        >
+                          {fileContent || ''}
+                        </SyntaxHighlighter>
                       )}
                     </div>
                   </>
