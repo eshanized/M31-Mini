@@ -303,14 +303,31 @@ When providing solutions, ensure they align with the repository's structure and 
   // Helper method to get file tree without parameters if repository is already loaded
   public async getFileTree(): Promise<FileTree | null> {
     if (!this.githubService || !this.repoData) {
-      throw new Error('Repository not loaded');
+      console.error('Cannot get file tree: Repository not loaded or GitHub service not initialized');
+      throw new Error('Repository not loaded or service not initialized');
     }
     
-    if (!this.fileTree) {
-      this.fileTree = await this.githubService.getFileTree(this.repoData.owner, this.repoData.name);
+    try {
+      console.log(`Getting file tree for repository: ${this.repoData.owner}/${this.repoData.name}`);
+      
+      if (!this.fileTree) {
+        console.log('File tree not cached, fetching from GitHub service...');
+        this.fileTree = await this.githubService.getFileTree(this.repoData.owner, this.repoData.name);
+        console.log('File tree fetched successfully');
+      } else {
+        console.log('Using cached file tree');
+      }
+      
+      if (!this.fileTree) {
+        console.error('File tree is null after fetching');
+        throw new Error('Failed to retrieve file tree from repository');
+      }
+      
+      return this.fileTree;
+    } catch (error) {
+      console.error('Error getting file tree:', error);
+      throw error;
     }
-    
-    return this.fileTree;
   }
   
   // Helper method to get file content

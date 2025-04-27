@@ -15,7 +15,7 @@ interface FileEdit {
 }
 
 export default function AgentPage() {
-  const { aiService, githubRepo } = useAppStore();
+  const { aiService, githubRepo, fetchGithubRepo, isLoadingRepo, repoLoadingProgress } = useAppStore();
   const [fileTree, setFileTree] = useState<FileTree | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [fileContent, setFileContent] = useState<string>('');
@@ -29,6 +29,63 @@ export default function AgentPage() {
   const [agentResponse, setAgentResponse] = useState<string | null>(null);
   const [fileEdits, setFileEdits] = useState<FileEdit[]>([]);
   const [isSaving, setIsSaving] = useState(false);
+  
+  // State for repository URL input
+  const [repoUrl, setRepoUrl] = useState('');
+  const [recentRepos, setRecentRepos] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  
+  // Load recent repositories from localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const savedRepos = localStorage.getItem('recentRepositories');
+      if (savedRepos) {
+        setRecentRepos(JSON.parse(savedRepos));
+      }
+    }
+  }, []);
+  
+  // Add repository to recent list
+  const addToRecentRepos = (url: string) => {
+    const updatedRepos = [url, ...recentRepos.filter(repo => repo !== url)].slice(0, 5);
+    setRecentRepos(updatedRepos);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('recentRepositories', JSON.stringify(updatedRepos));
+    }
+  };
+  
+  // Handle repository URL submission
+  const handleRepoSubmit = async (url: string) => {
+    setError(null);
+    if (!url.trim()) {
+      setError('Please enter a GitHub repository URL');
+      return;
+    }
+    
+    // Simple validation for GitHub URL format
+    if (!url.includes('github.com')) {
+      setError('Please enter a valid GitHub repository URL');
+      return;
+    }
+    
+    try {
+      await fetchGithubRepo(url);
+      addToRecentRepos(url);
+      setRepoUrl('');
+    } catch (error) {
+      setError(`Failed to load repository: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+  
+  // Add this effect to initialize the service
+  useEffect(() => {
+    // This ensures the service is initialized even if the API key is already in localStorage
+    if (!aiService) {
+      const { initializeAIService } = useAppStore.getState();
+      initializeAIService();
+      console.log("AI service initialized from agent page");
+    }
+  }, [aiService]);
   
   // Fetch file tree when repository is loaded
   useEffect(() => {
@@ -307,6 +364,74 @@ ${isFileAnalysis ? 'Focus on the specific file provided.' : 'Consider the entire
   return (
     <Layout>
       <div className="container mx-auto px-4 py-6 max-w-7xl">
+        {!githubRepo ? (
+          <div className="bg-dark-200 rounded-xl border border-gray-800 p-6 mb-6">
+            <h2 className="text-xl font-bold text-white mb-4">Load GitHub Repository</h2>
+            
+            <div className="mb-4">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={repoUrl}
+                  onChange={(e) => setRepoUrl(e.target.value)}
+                  placeholder="Enter GitHub repository URL (e.g., https://github.com/username/repo)"
+                  className="flex-1 bg-dark-100 border border-gray-700 rounded-md px-4 py-2 text-gray-200 
+                    placeholder-gray-500 focus:outline-none focus:border-primary-500"
+                />
+                <button
+                  onClick={() => handleRepoSubmit(repoUrl)}
+                  disabled={isLoadingRepo || !repoUrl.trim()}
+                  className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 
+                    disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                >
+                  {isLoadingRepo ? (
+                    <>
+                      <FiRefreshCw className="animate-spin mr-2 h-4 w-4" />
+                      Loading...
+                    </>
+                  ) : (
+                    "Load Repository"
+                  )}
+                </button>
+              </div>
+              {error && <p className="mt-2 text-red-400 text-sm">{error}</p>}
+              
+              {isLoadingRepo && (
+                <div className="mt-4">
+                  <div className="w-full bg-dark-300 rounded-full h-2.5 mb-2">
+                    <div 
+                      className="bg-primary-600 h-2.5 rounded-full" 
+                      style={{ width: `${repoLoadingProgress}%` }}
+                    ></div>
+                  </div>
+                  <p className="text-xs text-gray-400 text-right">
+                    {repoLoadingProgress}% Complete
+                  </p>
+                </div>
+              )}
+            </div>
+            
+            {recentRepos.length > 0 && (
+              <div>
+                <h3 className="text-sm font-medium text-gray-300 mb-2">Recent Repositories</h3>
+                <div className="space-y-2">
+                  {recentRepos.map((repo, index) => (
+                    <button
+                      key={index}
+                      onClick={() => handleRepoSubmit(repo)}
+                      disabled={isLoadingRepo}
+                      className="w-full text-left px-3 py-2 bg-dark-100 border border-gray-700 rounded-md text-gray-300 
+                        hover:bg-dark-300 transition-colors text-sm truncate disabled:opacity-50"
+                    >
+                      {repo.replace('https://github.com/', '')}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : null}
+        
         {githubRepo ? (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             {/* Left panel: File explorer and repo info */}

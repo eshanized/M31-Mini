@@ -49,9 +49,11 @@ export class GitHubService {
   private apiKey: string;
   private readonly corsProxy: string = 'https://cors.isomorphic-git.org';
   private isInitialized: boolean = false;
+  private debug: boolean = true; // Enable debug logging
 
   constructor(apiKey: string = '') {
     this.apiKey = apiKey;
+    if (this.debug) console.log('GitHubService initialized');
   }
 
   private async ensureInitialized(): Promise<boolean> {
@@ -60,18 +62,29 @@ export class GitHubService {
       return false;
     }
 
+    if (this.debug) console.log('Ensuring GitHubService is initialized...');
+
     // Wait for imports to complete if they haven't already
     if (!git || !http || !fs) {
+      if (this.debug) console.log('Loading required dependencies...');
       try {
         await Promise.all([
-          import('isomorphic-git').then(module => { git = module }),
-          import('isomorphic-git/http/web').then(module => { http = module.default }),
+          import('isomorphic-git').then(module => { 
+            git = module;
+            if (this.debug) console.log('Loaded isomorphic-git');
+          }),
+          import('isomorphic-git/http/web').then(module => { 
+            http = module.default;
+            if (this.debug) console.log('Loaded isomorphic-git/http/web');
+          }),
           import('@isomorphic-git/lightning-fs').then(module => {
             const LightningFS = module.default;
             fs = new LightningFS('m31-mini-fs');
+            if (this.debug) console.log('Initialized LightningFS');
           })
         ]);
         this.isInitialized = true;
+        if (this.debug) console.log('All dependencies loaded successfully');
         return true;
       } catch (error) {
         console.error('Failed to initialize GitHub service:', error);
@@ -80,10 +93,13 @@ export class GitHubService {
     }
 
     this.isInitialized = true;
+    if (this.debug) console.log('GitHubService already initialized');
     return true;
   }
 
   async cloneRepository(url: string, progressCallback?: (progress: any) => void): Promise<GitHubRepo> {
+    if (this.debug) console.log(`Cloning repository: ${url}`);
+    
     const initialized = await this.ensureInitialized();
     if (!initialized) {
       throw new Error('GitHub service could not be initialized');
@@ -97,16 +113,21 @@ export class GitHubService {
 
     const [, owner, repoName] = match;
     const dir = `/${owner}/${repoName}`;
+    
+    if (this.debug) console.log(`Repository info: owner=${owner}, repo=${repoName}, dir=${dir}`);
 
     try {
       // Make sure the directory exists
       try {
         await fs.promises.mkdir(dir);
+        if (this.debug) console.log(`Created directory: ${dir}`);
       } catch (err) {
         // Directory might already exist, ignore error
+        if (this.debug) console.log(`Directory may already exist: ${dir}`, err);
       }
 
       // Clone the repository
+      if (this.debug) console.log(`Starting clone operation...`);
       await git.clone({
         fs: fs.promises,
         http,
@@ -115,14 +136,21 @@ export class GitHubService {
         corsProxy: this.corsProxy,
         singleBranch: true,
         depth: 1,
-        onProgress: progressCallback,
+        onProgress: (progress: any) => {
+          if (this.debug && progress.phase) console.log(`Clone progress: ${progress.phase} - ${progress.loaded}/${progress.total}`);
+          if (progressCallback) progressCallback(progress);
+        },
       });
+      if (this.debug) console.log(`Clone operation completed successfully`);
 
       // Get repository details from GitHub API
+      if (this.debug) console.log(`Fetching repository details from GitHub API...`);
       const repoDetails = await this.getRepoDetails(owner, repoName);
 
       // Count files and analyze file types
+      if (this.debug) console.log(`Analyzing repository content...`);
       const { fileCount, fileTypes } = await this.analyzeRepoContent(dir);
+      if (this.debug) console.log(`Repository analysis complete: ${fileCount} files found`);
 
       return {
         name: repoName,
@@ -142,12 +170,16 @@ export class GitHubService {
   }
 
   async getFileTree(owner: string, repoName: string): Promise<FileTree> {
+    if (this.debug) console.log(`Getting file tree for: ${owner}/${repoName}`);
+    
     const initialized = await this.ensureInitialized();
     if (!initialized) {
       throw new Error('GitHub service could not be initialized');
     }
 
     const dir = `/${owner}/${repoName}`;
+    if (this.debug) console.log(`Directory path: ${dir}`);
+    
     const rootTree: FileTree = {
       type: 'dir',
       name: repoName,
@@ -156,7 +188,9 @@ export class GitHubService {
     };
 
     try {
+      if (this.debug) console.log(`Building file tree...`);
       await this.buildFileTree(rootTree, dir);
+      if (this.debug) console.log(`File tree built successfully`);
       return rootTree;
     } catch (error) {
       console.error('Error getting file tree:', error);
@@ -204,30 +238,52 @@ export class GitHubService {
   }
 
   private async buildFileTree(node: FileTree, path: string): Promise<void> {
-    const entries = await fs.promises.readdir(path);
+    if (this.debug) console.log(`Building file tree for path: ${path}`);
     
-    for (const entry of entries) {
-      if (entry === '.git') continue; // Skip .git directory
+    try {
+      const entries = await fs.promises.readdir(path);
+      if (this.debug) console.log(`Found ${entries.length} entries in ${path}`);
       
-      const fullPath = `${path}/${entry}`;
-      const stats = await fs.promises.stat(fullPath);
-      
-      if (stats.isDirectory()) {
-        const childNode: FileTree = {
-          type: 'dir',
-          name: entry,
-          path: fullPath,
-          children: [],
-        };
-        node.children?.push(childNode);
-        await this.buildFileTree(childNode, fullPath);
-      } else {
-        node.children?.push({
-          type: 'file',
-          name: entry,
-          path: fullPath,
-        });
+      for (const entry of entries) {
+        if (entry === '.git') {
+          if (this.debug) console.log(`Skipping .git directory`);
+          continue; // Skip .git directory
+        }
+        
+        const fullPath = `${path}/${entry}`;
+        if (this.debug) console.log(`Processing entry: ${entry}, fullPath: ${fullPath}`);
+        
+        try {
+          const stats = await fs.promises.stat(fullPath);
+          
+          if (stats.isDirectory()) {
+            if (this.debug) console.log(`${entry} is a directory`);
+            const childNode: FileTree = {
+              type: 'dir',
+              name: entry,
+              path: fullPath,
+              children: [],
+            };
+            node.children?.push(childNode);
+            await this.buildFileTree(childNode, fullPath);
+          } else {
+            if (this.debug) console.log(`${entry} is a file`);
+            node.children?.push({
+              type: 'file',
+              name: entry,
+              path: fullPath,
+            });
+          }
+        } catch (error) {
+          console.error(`Error processing entry ${entry}:`, error);
+          // Continue with other entries instead of failing the whole operation
+        }
       }
+      
+      if (this.debug) console.log(`Completed file tree for: ${path}`);
+    } catch (error) {
+      console.error(`Error reading directory ${path}:`, error);
+      throw error;
     }
   }
 
